@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { loginWithGoogle, loginWithEmail, isFirebaseConfigured } from '../services/firebase';
-import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { loginWithGoogle, loginWithEmail, isFirebaseConfigured, resetPassword } from '../services/firebase';
+import { Mail, Lock, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
+  const [resetMessage, setResetMessage] = useState('');
   const [loading, setLoading]   = useState(false);
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError(''); setResetMessage(''); setLoading(true);
     try {
       await loginWithEmail(email, password);
       navigate('/');
@@ -26,8 +27,23 @@ const Login = () => {
     } finally { setLoading(false); }
   };
 
+  const handleResetPassword = async () => {
+    if (!email) {
+      setError('Please enter your email address first.');
+      setResetMessage('');
+      return;
+    }
+    setError(''); setResetMessage('');
+    try {
+      await resetPassword(email);
+      setResetMessage('Password reset link sent! Check your email.');
+    } catch (err) {
+      setError(err.code === 'auth/user-not-found' ? 'No account found with this email.' : err.message || 'Failed to send reset email.');
+    }
+  };
+
   const handleGoogleLogin = async () => {
-    setError('');
+    setError(''); setResetMessage('');
     try { await loginWithGoogle(); navigate('/'); }
     catch (err) { setError(err.message || 'Google sign-in failed.'); }
   };
@@ -47,7 +63,7 @@ const Login = () => {
             }}>🛡️</div>
             <div>
               <p style={{ fontFamily:'Space Grotesk', fontWeight:700, fontSize:'1.25rem', color:'var(--text)' }}>FinSmart AI</p>
-              <p style={{ fontSize:'0.68rem', color:'var(--teal)', letterSpacing:'0.1em', textTransform:'uppercase' }}>Smart FinTech · protonex-bbe83</p>
+              <p style={{ fontSize:'0.68rem', color:'var(--teal)', letterSpacing:'0.1em', textTransform:'uppercase' }}>Smart FinTech System</p>
             </div>
           </div>
 
@@ -103,6 +119,14 @@ const Login = () => {
             </div>
           )}
 
+          {/* Success */}
+          {resetMessage && (
+            <div style={{ display:'flex', gap:8, alignItems:'flex-start', background:'rgba(16,185,129,0.1)', border:'1px solid var(--success)', borderRadius:'var(--r-md)', padding:'10px 12px', marginBottom:16 }}>
+              <CheckCircle2 size={15} color="var(--success)" style={{ flexShrink:0, marginTop:1 }} />
+              <p style={{ fontSize:'0.8rem', color:'var(--success)' }}>{resetMessage}</p>
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleEmailLogin}>
             <div className="input-group">
@@ -117,8 +141,13 @@ const Login = () => {
             </div>
 
             <div className="input-group">
-              <label className="input-label">Password</label>
-              <div style={{ position:'relative' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <label className="input-label" style={{ marginBottom:0 }}>Password</label>
+                <button type="button" onClick={handleResetPassword} style={{ background:'transparent', border:'none', color:'var(--teal)', fontSize:'0.75rem', fontWeight:600, cursor:'pointer' }}>
+                  Forgot password?
+                </button>
+              </div>
+              <div style={{ position:'relative', marginTop:6 }}>
                 <Lock size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
                 <input type="password" className="input-field" value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -130,7 +159,7 @@ const Login = () => {
             <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:4 }} disabled={loading}>
               {loading
                 ? <><span style={{ width:14, height:14, border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'white', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} /> Signing in…</>
-                : <>'Sign In' <ArrowRight size={15} /></>
+                : <>Sign In <ArrowRight size={15} /></>
               }
             </button>
           </form>

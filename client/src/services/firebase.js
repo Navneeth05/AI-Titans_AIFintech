@@ -7,6 +7,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   sendEmailVerification,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
@@ -62,6 +63,11 @@ export const registerWithEmail = async (email, password) => {
     console.warn("Failed to send verification email", err);
   }
   return r.user;
+};
+
+export const resetPassword = async (email) => {
+  if (!auth) throw new Error("Firebase not configured");
+  await sendPasswordResetEmail(auth, email);
 };
 
 export const loginWithGoogle = async () => {
