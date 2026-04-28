@@ -42,13 +42,17 @@ const notReady = () => { console.warn("[Firestore] Not configured — data not s
 // ─── User Profile ─────────────────────────────────────────────────────────────
 export const saveUserProfile = async (uid, data) => {
   if (!db) return notReady();
-  await setDoc(userDocRef(uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  try {
+    await withTimeout(setDoc(userDocRef(uid), { ...data, updatedAt: serverTimestamp() }, { merge: true }));
+  } catch (err) {
+    console.warn("[Firestore] saveUserProfile timeout/error:", err.message);
+  }
 };
 
 export const getUserProfile = async (uid) => {
   if (!db) return null;
   try {
-    const snap = await getDoc(userDocRef(uid));
+    const snap = await withTimeout(getDoc(userDocRef(uid)));
     return snap.exists() ? snap.data() : null;
   } catch { return null; }
 };
