@@ -30,6 +30,7 @@ from app.models.transaction import BankStatement, Transaction
 from app.schemas.transaction import UploadResponse, FCMTokenUpdate
 from app.services.pdf_parser import extract_transactions
 from app.services.ml_model import predict_fraud_score, predict_credit_score, predict_nlp_category
+from app.services.gemini_service import analyze_statement_with_gemini
 from app.utils.auth import get_current_user
 
 router = APIRouter(tags=["Upload"])
@@ -40,26 +41,8 @@ _ALLOWED_CONTENT_TYPES = {
     "text/csv", "application/vnd.ms-excel",
 }
 
-# ── NLP Keywords for transaction classification ─────────────────────────────────
-_NLP_RULES = [
-    {"category": "Food",          "keywords": ["swiggy","zomato","food","restaurant","cafe","pizza","burger","hotel","grocer","bigbasket","blinkit","dominos","kfc"]},
-    {"category": "Travel",        "keywords": ["uber","ola","rapido","irctc","train","flight","airport","taxi","metro","bus","petrol","fuel","indigo","spicejet","cab"]},
-    {"category": "Bills",         "keywords": ["airtel","jio","bsnl","electricity","bill","recharge","postpaid","broadband","water","gas","lic","insurance","rent"]},
-    {"category": "Shopping",      "keywords": ["amazon","flipkart","myntra","ajio","meesho","nykaa","shopping","purchase","store","mall","reliance","dmart","croma"]},
-    {"category": "Health",        "keywords": ["pharmacy","hospital","clinic","doctor","medical","apollo","medplus","netmeds","1mg","diagnostic","health","medicine"]},
-    {"category": "Entertainment", "keywords": ["netflix","spotify","prime","hotstar","youtube","disney","zee5","ott","cinema","movie","pvr","gaming"]},
-]
-
-
 def _classify_transaction(description: str) -> str:
-    """Classify transaction using ML model with NLP heuristics as fallback."""
-    # First try heuristic keyword match
-    lower = description.lower()
-    for rule in _NLP_RULES:
-        if any(kw in lower for kw in rule["keywords"]):
-            return rule["category"]
-    
-    # If no heuristic match, use ML NLP model
+    """Classify transaction using ML NLP model (Keyword extraction + TF-IDF)."""
     return predict_nlp_category(description)
 
 
@@ -239,6 +222,22 @@ async def upload_and_analyse(
             tx_dicts = []
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+    # ── Try Gemini Analysis first if configured ─────────────────────────
+    if is_csv == False and file.filename and settings.GEMINI_API_KEY:
+        # Write to temp file for Gemini upload
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        gemini_result = analyze_statement_with_gemini(tmp_path)
+        Path(tmp_path).unlink(missing_ok=True)
+        
+        if gemini_result:
+            return {
+                **gemini_result,
+                "message": "Analysis complete — Processed by Gemini 1.5 Pro AI model."
+            }
 
     if not tx_dicts:
         raise HTTPException(

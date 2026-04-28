@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 import smtplib
 from email.message import EmailMessage
-import os
+from app.config import settings
 
 router = APIRouter(tags=["Email"])
 
@@ -17,10 +17,9 @@ class FraudAlertRequest(BaseModel):
 
 @router.post("/email/fraud-alert")
 async def send_fraud_alert(req: FraudAlertRequest):
-    # Retrieve credentials from environment variables
-    # The user should add these to their .env file
-    sender_email = os.environ.get("SMTP_EMAIL", "navneethks05@gmail.com")
-    sender_password = os.environ.get("SMTP_PASSWORD")
+    # Retrieve credentials from settings
+    sender_email = settings.SMTP_EMAIL or "navneethks05@gmail.com"
+    sender_password = settings.SMTP_PASSWORD
 
     body = f"""Hello {req.toName},
 

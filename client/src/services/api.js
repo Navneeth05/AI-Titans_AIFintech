@@ -6,6 +6,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 60000, // 60 seconds
 });
 
 // Attach Firebase ID Token to every request automatically
@@ -63,6 +64,7 @@ export const getDashboardData = async (uid) => {
     let riskScore = 0;
     let categories = mockCategories;
     let transactions = mockTransactions;
+    let trend = null;
 
     if (uid) {
       // Fetch latest upload for scores and categories
@@ -82,19 +84,53 @@ export const getDashboardData = async (uid) => {
       const storedTx = await getStoredTransactions(uid);
       if (storedTx && storedTx.length > 0) {
         transactions = storedTx;
+        
+        // Calculate monthly trend
+        const monthsMap = {};
+        storedTx.forEach(tx => {
+          if (!tx.date) return;
+          const date = new Date(tx.date);
+          const month = date.toLocaleString('default', { month: 'short' });
+          const year = date.getFullYear();
+          const key = `${month} ${year}`;
+          
+          if (!monthsMap[key]) monthsMap[key] = { month: key, spend: 0, income: 0, sortKey: date.getTime() };
+          
+          const amt = Math.abs(tx.amount || 0);
+          if (tx.transaction_type === 'credit') {
+            monthsMap[key].income += amt;
+          } else {
+            monthsMap[key].spend += amt;
+          }
+        });
+        
+        const trendData = Object.values(monthsMap).sort((a, b) => a.sortKey - b.sortKey);
+        if (trendData.length > 0) {
+          trend = trendData.map(({ month, spend, income }) => ({ month, spend, income }));
+        }
       }
     }
 
     return {
-      creditScore,
-      riskScore,
-      spendingCategories: categories,
-      recentTransactions: transactions,
+      creditScore: creditScore || 680,
+      riskScore: riskScore || 24,
+      spendingCategories: categories || mockCategories,
+      recentTransactions: transactions || mockTransactions,
+      trend: trend || mockTrend,
     };
   } catch {
-    return { creditScore: 0, riskScore: 0, spendingCategories: mockCategories, recentTransactions: mockTransactions };
+    return { creditScore: 680, riskScore: 24, spendingCategories: mockCategories, recentTransactions: mockTransactions, trend: mockTrend };
   }
 };
+
+const mockTrend = [
+  { month:'May', spend:1800, income:4200 },
+  { month:'Jun', spend:2200, income:4500 },
+  { month:'Jul', spend:1900, income:4500 },
+  { month:'Aug', spend:2600, income:4800 },
+  { month:'Sep', spend:2100, income:4500 },
+  { month:'Oct', spend:1950, income:4500 },
+];
 
 // ─── Fallback data (used when backend is not running) ──────────────────────────
 const mockCategories = [

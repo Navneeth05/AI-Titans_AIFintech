@@ -10,15 +10,7 @@ import { useAuth } from '../context/AuthContext';
 
 const COLORS = ['#0d9488','#7c3aed','#059669','#f59e0b','#ef4444','#06b6d4'];
 
-const TREND = [
-  { month:'May', spend:1800, income:4200 },
-  { month:'Jun', spend:2200, income:4500 },
-  { month:'Jul', spend:1900, income:4500 },
-  { month:'Aug', spend:2600, income:4800 },
-  { month:'Sep', spend:2100, income:4500 },
-  { month:'Oct', spend:1950, income:4500 },
-];
-
+// ── Trend data is now fetched from API ───────────────────────────────────────
 const tooltipStyle = { backgroundColor:'white', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'0.82rem', color:'#0f172a' };
 
 const Dashboard = () => {
@@ -136,16 +128,15 @@ const Dashboard = () => {
         {/* Monthly spend */}
         <div className="card card-purple">
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-            <p className="stat-label">Monthly Spend</p>
+            <p className="stat-label">Latest Monthly Spend</p>
             <div className="stat-icon" style={{ background:'var(--purple-bg)' }}>
               <TrendingUp size={18} color="var(--purple)" />
             </div>
           </div>
-          <p className="stat-value">₹1,950</p>
-          <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:8, fontSize:'0.8rem', color:'var(--danger)' }}>
-            <TrendingUp size={13} /> +12.5% vs last month
+          <p className="stat-value">₹{(data?.trend?.[data.trend.length - 1]?.spend || 0).toLocaleString()}</p>
+          <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:8, fontSize:'0.8rem', color:'var(--text-muted)' }}>
+             Month: {data?.trend?.[data.trend.length - 1]?.month || 'N/A'}
           </div>
-          <p style={{ fontSize:'0.72rem', color:'var(--success)', marginTop:4 }}>Savings ratio: 56.7%</p>
         </div>
 
         {/* Total Transactions */}
@@ -169,7 +160,7 @@ const Dashboard = () => {
           <div className="card">
             <h3 style={{ fontSize:'0.95rem', marginBottom:18 }}>💰 Income vs Spending Trend</h3>
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={TREND}>
+              <AreaChart data={data?.trend || []}>
                 <defs>
                   <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#0d9488" stopOpacity={0.15} />

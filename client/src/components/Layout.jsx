@@ -53,18 +53,20 @@ const Layout = () => {
         </nav>
 
         {/* User footer */}
-        <div className="sidebar-user">
-          <div className="user-avatar">{initials}</div>
-          <div className="user-info" style={{ flex:1, minWidth:0 }}>
-            <span>{user?.displayName ?? 'Demo User'}</span>
-            <span>{user?.email ?? 'dev@finsmart.local'}</span>
-            <span style={{ fontSize:'0.65rem', color:'var(--teal)', fontWeight:600, marginTop:2, display:'block' }}>
-              🏦 {user?.bank ?? 'Bank Not Linked'}
-            </span>
-          </div>
+        <div className="sidebar-user" style={{ display: 'flex', alignItems: 'center' }}>
+          <NavLink to="/profile" style={{ display: 'flex', alignItems: 'center', flex: 1, textDecoration: 'none', color: 'inherit', minWidth: 0, gap: 12 }}>
+            <div className="user-avatar">{initials}</div>
+            <div className="user-info" style={{ flex:1, minWidth:0 }}>
+              <span style={{ display: 'block', fontWeight: 600 }}>{user?.displayName ?? 'Demo User'}</span>
+              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email ?? 'dev@finsmart.local'}</span>
+              <span style={{ fontSize:'0.65rem', color:'var(--teal)', fontWeight:600, marginTop:2, display:'block' }}>
+                🏦 {user?.bank ?? 'Bank Not Linked'}
+              </span>
+            </div>
+          </NavLink>
           <button onClick={handleLogout} title="Logout"
-            style={{ background:'transparent', color:'var(--text-muted)', padding:4, flexShrink:0, alignSelf:'center' }}>
-            <LogOut size={15} />
+            style={{ background:'transparent', color:'var(--text-muted)', padding:4, flexShrink:0, alignSelf:'center', cursor: 'pointer', border: 'none' }}>
+            <LogOut size={16} />
           </button>
         </div>
       </aside>

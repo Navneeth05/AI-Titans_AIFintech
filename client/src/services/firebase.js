@@ -8,6 +8,7 @@ import {
   signOut,
   sendEmailVerification,
   sendPasswordResetEmail,
+  updateProfile,
 } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
@@ -74,6 +75,11 @@ export const loginWithGoogle = async () => {
   if (!auth) throw new Error("Firebase not configured");
   const r = await signInWithPopup(auth, googleProvider);
   return r.user;
+};
+
+export const updateProfileName = async (displayName) => {
+  if (!auth?.currentUser) throw new Error("No user authenticated");
+  await updateProfile(auth.currentUser, { displayName });
 };
 
 export const logout = () => (auth ? signOut(auth) : Promise.resolve());

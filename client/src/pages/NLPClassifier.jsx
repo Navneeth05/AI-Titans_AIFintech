@@ -74,7 +74,14 @@ const NLPClassifier = () => {
   const [filter,     setFilter]     = useState('All');
   const [source,     setSource]     = useState('demo');
 
-  const classify = useCallback((txns) => txns.map(t => ({ ...t, ...classifyTransaction(t.description || t.merchant || '') })), []);
+  const classify = useCallback((txns) => txns.map(t => {
+    // If backend already assigned a category from our ML NLP model, use it!
+    const fallback = classifyTransaction(t.description || t.merchant || '');
+    if (t.category && t.category !== 'Other' && t.category !== '') {
+      return { ...fallback, ...t, confidence: t.confidence || 0.95 }; 
+    }
+    return { ...t, ...fallback };
+  }), []);
 
   const loadData = useCallback(async () => {
     setLoading(true);

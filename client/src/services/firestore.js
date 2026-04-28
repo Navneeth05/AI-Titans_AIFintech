@@ -8,7 +8,7 @@
 import {
   getFirestore,
   collection, addDoc, getDocs, setDoc, doc, getDoc,
-  query, orderBy, limit, serverTimestamp,
+  query, orderBy, limit, serverTimestamp, writeBatch,
 } from "firebase/firestore";
 import { isFirebaseConfigured } from "./firebase";
 import { getApps } from "firebase/app";
@@ -25,10 +25,10 @@ if (isFirebaseConfigured) {
 }
 
 // ─── Timeout Wrapper ─────────────────────────────────────────────────────────
-const withTimeout = (promise, ms = 3000) => {
+const withTimeout = (promise, ms = 15000) => {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms))
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore operation timed out")), ms))
   ]);
 };
 
@@ -43,9 +43,9 @@ const notReady = () => { console.warn("[Firestore] Not configured — data not s
 export const saveUserProfile = async (uid, data) => {
   if (!db) return notReady();
   try {
-    await withTimeout(setDoc(userDocRef(uid), { ...data, updatedAt: serverTimestamp() }, { merge: true }));
+    await setDoc(userDocRef(uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
   } catch (err) {
-    console.warn("[Firestore] saveUserProfile timeout/error:", err.message);
+    console.warn("[Firestore] saveUserProfile error:", err.message);
   }
 };
 
@@ -66,11 +66,16 @@ export const getUserProfile = async (uid) => {
  */
 export const saveUpload = async (uid, uploadData) => {
   if (!db) { notReady(); return null; }
-  const ref = await addDoc(userCol(uid, "uploads"), {
-    ...uploadData,
-    createdAt: serverTimestamp(),
-  });
-  return ref.id;
+  try {
+    const ref = await addDoc(userCol(uid, "uploads"), {
+      ...uploadData,
+      createdAt: serverTimestamp(),
+    });
+    return ref.id;
+  } catch (err) {
+    console.error("[Firestore] saveUpload failed:", err.message);
+    throw err;
+  }
 };
 
 /**
@@ -91,12 +96,17 @@ export const getUploads = async (uid) => {
  */
 export const saveCreditScore = async (uid, score, source = "upload") => {
   if (!db) { notReady(); return null; }
-  const ref = await addDoc(userCol(uid, "creditScores"), {
-    score, source, createdAt: serverTimestamp(),
-  });
-  // Keep the user profile in sync
-  await saveUserProfile(uid, { latestCreditScore: score });
-  return ref.id;
+  try {
+    const ref = await addDoc(userCol(uid, "creditScores"), {
+      score, source, createdAt: serverTimestamp(),
+    });
+    // Keep the user profile in sync
+    await saveUserProfile(uid, { latestCreditScore: score });
+    return ref.id;
+  } catch (err) {
+    console.error("[Firestore] saveCreditScore failed:", err.message);
+    throw err;
+  }
 };
 
 /**
@@ -118,9 +128,20 @@ export const getCreditScoreHistory = async (uid) => {
 export const saveTransactions = async (uid, transactions) => {
   if (!db || !transactions?.length) return;
   const col = userCol(uid, "transactions");
-  await Promise.all(transactions.map(tx =>
-    addDoc(col, { ...tx, createdAt: serverTimestamp() })
-  ));
+  
+  // Use batches to improve performance and avoid individual request overhead
+  const BATCH_SIZE = 400; // Firestore limit is 500
+  for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+    const batch = writeBatch(db);
+    const chunk = transactions.slice(i, i + BATCH_SIZE);
+    
+    chunk.forEach(tx => {
+      const newDoc = doc(col);
+      batch.set(newDoc, { ...tx, createdAt: serverTimestamp() });
+    });
+    
+    await batch.commit();
+  }
 };
 
 /**
@@ -133,6 +154,28 @@ export const getStoredTransactions = async (uid) => {
     const snap = await withTimeout(getDocs(q));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch { return []; }
+};
+
+// ─── Fraud Alerts ─────────────────────────────────────────────────────────────
+/**
+ * Save a fraud alert and trigger notification logic.
+ */
+export const saveFraudAlert = async (uid, alertData) => {
+  if (!db) { notReady(); return null; }
+  const ref = await addDoc(userCol(uid, "alerts"), {
+    ...alertData,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+};
+
+/**
+ * Update card status in user profile.
+ */
+export const updateCardStatus = async (uid, isBlocked) => {
+  if (!db) return notReady();
+  await saveUserProfile(uid, { cardBlocked: isBlocked });
 };
 
 export { db };

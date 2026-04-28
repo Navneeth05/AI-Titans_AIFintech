@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # ── Firebase ──────────────────────────────────────────────────────────
     FIREBASE_CREDENTIALS_PATH: str = "./firebase_credentials.json"
     FIREBASE_PROJECT_ID: str = ""
+    GEMINI_API_KEY: str | None = None
 
     # ── JWT / Security ────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production"
@@ -25,6 +26,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE_MB: int = 20
+
+    # ── Email ─────────────────────────────────────────────────────────────
+    SMTP_EMAIL: str | None = None
+    SMTP_PASSWORD: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

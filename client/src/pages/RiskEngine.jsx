@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, AlertTriangle, ShieldCheck, Zap, Activity, Clock, Mail, CheckCircle2 } from 'lucide-react';
+import { MapPin, AlertTriangle, ShieldCheck, ShieldAlert, Zap, Activity, Clock, Mail, CheckCircle2 } from 'lucide-react';
 import {
   RadialBarChart, RadialBar, ResponsiveContainer,
   AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
@@ -7,6 +7,7 @@ import {
 import { sendFraudAlertEmail } from '../services/emailService';
 import { useAuth } from '../context/AuthContext';
 import { getDashboardData } from '../services/api';
+import { saveFraudAlert, updateCardStatus } from '../services/firestore';
 
 // ── Haversine distance (km) ──────────────────────────────────────────────
 const haversine = (lat1, lon1, lat2, lon2) => {
@@ -15,6 +16,28 @@ const haversine = (lat1, lon1, lat2, lon2) => {
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+};
+
+const CITY_COORDS = {
+  "MUMBAI": {lat: 19.0760, lon: 72.8777}, "BOM": {lat: 19.0760, lon: 72.8777},
+  "DELHI": {lat: 28.7041, lon: 77.1025}, "DEL": {lat: 28.7041, lon: 77.1025},
+  "BENGALURU": {lat: 12.9716, lon: 77.5946}, "BANGALORE": {lat: 12.9716, lon: 77.5946}, "BLR": {lat: 12.9716, lon: 77.5946},
+  "HYDERABAD": {lat: 17.3850, lon: 78.4867}, "HYD": {lat: 17.3850, lon: 78.4867},
+  "CHENNAI": {lat: 13.0827, lon: 80.2707}, "MAA": {lat: 13.0827, lon: 80.2707},
+  "KOLKATA": {lat: 22.5726, lon: 88.3639}, "CCU": {lat: 22.5726, lon: 88.3639},
+  "PUNE": {lat: 18.5204, lon: 73.8567}, "PNQ": {lat: 18.5204, lon: 73.8567},
+  "AHMEDABAD": {lat: 23.0225, lon: 72.5714}, "AMD": {lat: 23.0225, lon: 72.5714},
+};
+
+const getLocationFromDesc = (desc) => {
+  if (!desc) return null;
+  const descUpper = String(desc).toUpperCase();
+  for (const [city, coords] of Object.entries(CITY_COORDS)) {
+    if (new RegExp(`\\b${city}\\b`).test(descUpper)) {
+      return { city, ...coords };
+    }
+  }
+  return null;
 };
 
 const MOCK_TX_LOCATIONS = [
@@ -43,24 +66,107 @@ const RiskEngine = () => {
   const [emailSent, setEmailSent]         = useState(false);
   const [data, setData]                   = useState(null);
 
+  // Manual Check State
+  const [manualLoc1, setManualLoc1] = useState('BENGALURU');
+  const [manualTime1, setManualTime1] = useState('10:00');
+  const [manualLoc2, setManualLoc2] = useState('DELHI');
+  const [manualTime2, setManualTime2] = useState('10:15');
+  const [manualResult, setManualResult] = useState(null);
+
+  const handleManualCheck = () => {
+    const coords1 = CITY_COORDS[manualLoc1] || CITY_COORDS['BENGALURU'];
+    const coords2 = CITY_COORDS[manualLoc2] || CITY_COORDS['DELHI'];
+    const dist = Math.round(haversine(coords1.lat, coords1.lon, coords2.lat, coords2.lon));
+    
+    const [h1, m1] = manualTime1.split(':').map(Number);
+    const [h2, m2] = manualTime2.split(':').map(Number);
+    let timeGapMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+    if (timeGapMins <= 0) timeGapMins += 24 * 60;
+    
+    const timeGapHours = timeGapMins / 60;
+    const speed = Math.round(dist / timeGapHours);
+    
+    const result = {
+        dist,
+        timeGap: `${Math.floor(timeGapHours)}h ${timeGapMins % 60}m`,
+        speed,
+        isFraud: speed > 900
+    };
+
+    setManualResult(result);
+
+    if (result.isFraud) {
+        setSimulatingFraud(true);
+        setCountdown(120);
+        setCardBlocked(false);
+        
+        // Save to Firebase
+        if (user?.uid) {
+            saveFraudAlert(user.uid, {
+                location1: manualLoc1,
+                time1: manualTime1,
+                location2: manualLoc2,
+                time2: manualTime2,
+                distance: dist,
+                speed: speed,
+                reason: 'Manual Location Check - Impossible Travel'
+            });
+        }
+
+        // Send Email Alert
+        if (user?.email) {
+            sendFraudAlertEmail({
+                toEmail: user.email,
+                toName: user.displayName || 'User',
+                merchant: 'Impossible Travel Alert',
+                amount: "0",
+                riskScore: speed > 1200 ? 99 : 85,
+                location: `${manualLoc1} → ${manualLoc2}`,
+                reason: `CRITICAL: Detected travel at ${speed} km/h between ${manualLoc1} and ${manualLoc2}. This exceeds the physical travel limit.`
+            });
+        }
+    }
+  };
+
   // Simulation state
   const [simulatingFraud, setSimulatingFraud] = useState(false);
-  const [countdown, setCountdown]             = useState(60);
+  const [countdown, setCountdown]             = useState(120);
   const [cardBlocked, setCardBlocked]         = useState(false);
 
   useEffect(() => {
     let timer;
     if (simulatingFraud && countdown > 0 && !cardBlocked) {
-      timer = setInterval(() => setCountdown(c => c - 1), 1000);
+      timer = setInterval(() => {
+        setCountdown(c => {
+          const next = c - 1;
+          // Send email every 10 seconds (at 110, 100, 90...) to match "Active Message X/12"
+          if (next > 0 && next % 10 === 0) {
+            const msgNum = Math.ceil((120 - next) / 10);
+            if (user?.email) {
+                sendFraudAlertEmail({
+                    toEmail: user.email,
+                    toName: user.displayName || 'User',
+                    merchant: 'Impossible Travel Alert (Reminder)',
+                    amount: "0",
+                    riskScore: 99,
+                    location: `${manualLoc1 || 'BENGALURU'} → ${manualLoc2 || 'DELHI'}`,
+                    reason: `SECURITY ALERT [${msgNum}/12]: Your card will be blocked in ${next}s. Please confirm if this is you.`
+                });
+            }
+          }
+          return next;
+        });
+      }, 1000);
     } else if (countdown === 0 && simulatingFraud && !cardBlocked) {
       setCardBlocked(true);
+      if (user?.uid) updateCardStatus(user.uid, true);
     }
     return () => clearInterval(timer);
-  }, [simulatingFraud, countdown, cardBlocked]);
+  }, [simulatingFraud, cardBlocked, user, manualLoc1, manualLoc2]);
 
   const triggerSimulation = () => {
     setSimulatingFraud(true);
-    setCountdown(60);
+    setCountdown(120);
     setCardBlocked(false);
     
     const dist = Math.round(haversine(12.9716, 77.5946, 28.7041, 77.1025));
@@ -69,7 +175,44 @@ const RiskEngine = () => {
   };
 
   useEffect(() => {
-    getDashboardData(user?.uid).then(d => setData(d));
+    getDashboardData(user?.uid).then(d => {
+      setData(d);
+      
+      if (d?.recentTransactions?.length > 0) {
+        const realImpossible = [];
+        for (let i = 0; i < d.recentTransactions.length; i++) {
+            const tx = d.recentTransactions[i];
+            if (tx.geo_flagged) {
+               // Find adjacent transaction location
+               const prevTx = i > 0 ? d.recentTransactions[i-1] : null; 
+               const loc1 = prevTx ? getLocationFromDesc(prevTx.description || prevTx.merchant) : null;
+               const loc2 = getLocationFromDesc(tx.description || tx.merchant);
+               
+               const distMatch = tx.geo_alert?.match(/\((\d+)\s*km\)/);
+               const dist = distMatch ? parseInt(distMatch[1]) : 1500;
+               // Estimate time gap to be 2 hours if not same day
+               const timeGapHours = 2; 
+               
+               realImpossible.push({
+                   from: loc1 ? loc1.city : 'Previous Location',
+                   fromTime: prevTx?.date || 'Previous Time',
+                   to: loc2 ? loc2.city : 'Current Location',
+                   toTime: tx.date || 'Current Time',
+                   dist: dist,
+                   timeGap: `${timeGapHours} hours`,
+                   speed: Math.round(dist / timeGapHours),
+                   merchant: tx.description || tx.merchant,
+                   isReal: true
+               });
+            }
+        }
+        if (realImpossible.length > 0) {
+            setImpossible(realImpossible);
+        } else {
+            setImpossible([]);
+        }
+      }
+    });
   }, [user]);
 
   const riskScore = data?.riskScore ?? 0;
@@ -128,41 +271,45 @@ const RiskEngine = () => {
       {/* ── Active Fraud Overlay ── */}
       {simulatingFraud && (
         <div className="alert-overlay" style={{ zIndex:999 }}>
-          <div className="alert-dialog" style={{ textAlign:'center' }}>
-            <div style={{ margin:'0 auto 16px', width:60, height:60, background: cardBlocked ? 'var(--danger)' : 'var(--warning)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {cardBlocked ? <ShieldCheck size={32} color="white" /> : <AlertTriangle size={32} color="white" />}
+          <div className={`alert-dialog ${!cardBlocked ? 'pulse-red' : ''}`} style={{ textAlign:'center', border: cardBlocked ? '1px solid var(--danger)' : '2px solid var(--danger)' }}>
+            <div style={{ margin:'0 auto 16px', width:60, height:60, background: cardBlocked ? 'var(--danger)' : 'var(--danger)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', animation: !cardBlocked ? 'pulse 1s infinite' : 'none' }}>
+              {cardBlocked ? <ShieldCheck size={32} color="white" /> : <ShieldAlert size={32} color="white" />}
             </div>
             
-            <h2 style={{ fontSize:'1.4rem', color:cardBlocked?'var(--danger)':'var(--text)', marginBottom:8 }}>
-              {cardBlocked ? 'Card Blocked' : 'Suspicious Transaction Detected!'}
+            <h2 style={{ fontSize:'1.4rem', color: 'var(--danger)', marginBottom:8 }}>
+              {cardBlocked ? 'Card Automatically Blocked' : 'CRITICAL: SUSPICIOUS ACTIVITY DETECTED'}
             </h2>
             
             {cardBlocked ? (
-              <p style={{ color:'var(--text-muted)' }}>For your security, we have blocked your card due to a confirmed fraudulent transaction or lack of response.</p>
+              <p style={{ color:'var(--text-muted)' }}>For your security, we have blocked your card due to no response within the safety window.</p>
             ) : (
               <>
-                <p style={{ fontSize:'1.1rem', marginBottom:8 }}>
-                  ₹8,999 at Unknown Vendor TX-99 in Delhi.
-                </p>
-                <p style={{ fontSize:'0.9rem', color:'var(--text-muted)', marginBottom:16 }}>
-                  Our system detected impossible travel from Bengaluru to Delhi (1,745 km) in 15 minutes.
-                </p>
-                <div style={{ padding:'12px', background:'var(--danger-bg)', borderRadius:'var(--r-md)', border:'1px solid var(--danger-border)', marginBottom:20 }}>
-                  <p style={{ fontWeight:700, color:'var(--danger)', fontSize:'1.2rem' }}>
-                    Auto-blocking card in {countdown}s
+                <div style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize:'1.1rem', fontWeight: 700, color: 'var(--text)' }}>
+                    Impossible Travel: {manualLoc1} → {manualLoc2}
                   </p>
-                  <p style={{ fontSize:'0.8rem', color:'var(--danger)' }}>Was this you?</p>
+                  <p style={{ fontSize:'0.9rem', color:'var(--text-muted)', marginTop: 4 }}>
+                    Alert Status: <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Active Message {Math.ceil((120 - countdown) / 10)} / 12</span>
+                  </p>
                 </div>
+                
+                <div style={{ padding:'12px', background:'var(--danger-bg)', borderRadius:'var(--r-md)', border:'1px solid var(--danger-border)', marginBottom:20 }}>
+                  <p style={{ fontWeight:700, color:'var(--danger)', fontSize:'1.3rem' }}>
+                    🚨 Blocking card in {countdown}s
+                  </p>
+                  <p style={{ fontSize:'0.85rem', color:'var(--danger)', marginTop: 4 }}>Was this you? Respond now to prevent card suspension.</p>
+                </div>
+                
                 <div className="alert-actions">
-                  <button className="btn btn-outline" onClick={() => setSimulatingFraud(false)}>Yes, it was me</button>
-                  <button className="btn btn-danger" onClick={() => setCardBlocked(true)}>No, block card</button>
+                  <button className="btn btn-outline" onClick={() => { setSimulatingFraud(false); setManualResult(null); }}>Yes, it was me</button>
+                  <button className="btn btn-danger" onClick={() => { setCardBlocked(true); if (user?.uid) updateCardStatus(user.uid, true); }}>No, block card</button>
                 </div>
               </>
             )}
 
             {cardBlocked && (
-              <button className="btn btn-primary" style={{ marginTop:24 }} onClick={() => { setSimulatingFraud(false); setCardBlocked(false); setImpossible([]); }}>
-                Dismiss
+              <button className="btn btn-primary" style={{ marginTop:24 }} onClick={() => { setSimulatingFraud(false); setCardBlocked(false); setManualResult(null); }}>
+                Dismiss & Contact Support
               </button>
             )}
           </div>
@@ -327,27 +474,77 @@ const RiskEngine = () => {
           {impossibleTrips.length === 0 && allTxns.length === 0 && <p style={{ fontSize:'0.85rem', color:'var(--text-muted)' }}>No recent transactions.</p>}
         </div>
 
-        {impossibleTrips.length > 0 && (
-          <div style={{
-            background:'var(--danger-bg)', border:'1px solid var(--danger-border)',
-            borderRadius:'var(--r-lg)', padding:'16px 20px',
-          }}>
-            <p style={{ fontWeight:700, color:'var(--danger)', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
-              <AlertTriangle size={16} /> Impossible Travel Detected
-            </p>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-              {[['Distance',`${impossibleTrips[0].dist.toLocaleString()} km`],['Time Gap','15 minutes'],['Speed',`${impossibleTrips[0].speed.toLocaleString()} km/h`]].map(([k,v]) => (
-                <div key={k} style={{ background:'white', borderRadius:'var(--r-sm)', padding:'10px 12px', border:'1px solid var(--danger-border)' }}>
-                  <p style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>{k}</p>
-                  <p style={{ fontWeight:700, color:'var(--danger)', fontSize:'1rem' }}>{v}</p>
-                </div>
-              ))}
+        {/* Manual Fraud Checker */}
+        <div style={{
+          background:'var(--surface-2)', border:'1px solid var(--border)',
+          borderRadius:'var(--r-lg)', padding:'16px 20px', marginBottom:16
+        }}>
+          <p style={{ fontWeight:700, color:'var(--text)', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
+            <MapPin size={16} /> Manual Location Fraud Checker
+          </p>
+          
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
+            {/* SECTION 1: Location 1 */}
+            <div style={{ background:'white', padding:'16px', borderRadius:'var(--r-md)', border:'1px solid var(--border)' }}>
+              <p style={{ fontSize:'0.75rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase', marginBottom:8 }}>Location 1 (Current Location/Cash Withdrawal)</p>
+              
+              <label style={{ display:'block', fontSize:'0.8rem', marginBottom:4, fontWeight:500 }}>City</label>
+              <select className="input" value={manualLoc1} onChange={e => setManualLoc1(e.target.value)} style={{ width:'100%', marginBottom:12 }}>
+                {Object.keys(CITY_COORDS).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              
+              <label style={{ display:'block', fontSize:'0.8rem', marginBottom:4, fontWeight:500 }}>Time</label>
+              <input type="time" className="input" value={manualTime1} onChange={e => setManualTime1(e.target.value)} style={{ width:'100%' }} />
             </div>
-            <p style={{ fontSize:'0.78rem', color:'var(--danger)', marginTop:10 }}>
-              Bengaluru (10:00 AM) → Delhi (10:15 AM) — Physically impossible. <strong>Auto-flagged as fraud.</strong>
-            </p>
+            
+            {/* SECTION 2: Location 2 */}
+            <div style={{ background:'white', padding:'16px', borderRadius:'var(--r-md)', border:'1px solid var(--border)' }}>
+              <p style={{ fontSize:'0.75rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase', marginBottom:8 }}>Location 2 (Another Location)</p>
+              
+              <label style={{ display:'block', fontSize:'0.8rem', marginBottom:4, fontWeight:500 }}>City</label>
+              <select className="input" value={manualLoc2} onChange={e => setManualLoc2(e.target.value)} style={{ width:'100%', marginBottom:12 }}>
+                {Object.keys(CITY_COORDS).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              
+              <label style={{ display:'block', fontSize:'0.8rem', marginBottom:4, fontWeight:500 }}>Time</label>
+              <input type="time" className="input" value={manualTime2} onChange={e => setManualTime2(e.target.value)} style={{ width:'100%' }} />
+            </div>
           </div>
-        )}
+
+          <button className="btn btn-primary" onClick={handleManualCheck} style={{ width:'100%', marginBottom:16 }}>
+            🔍 Check For Fraud
+          </button>
+
+          {manualResult && (
+            <div style={{
+              padding:'16px', borderRadius:'var(--r-md)',
+              background: manualResult.isFraud ? 'var(--danger-bg)' : 'var(--success-bg)',
+              border: `1px solid ${manualResult.isFraud ? 'var(--danger-border)' : 'var(--success-border)'}`
+            }}>
+              <p style={{ fontWeight:700, color: manualResult.isFraud ? 'var(--danger)' : 'var(--success)', marginBottom:12, fontSize:'1.1rem' }}>
+                {manualResult.isFraud ? '🚨 IMPOSSIBLE TRAVEL DETECTED' : '✅ TRAVEL IS POSSIBLE'}
+              </p>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+                {[['Distance',`${manualResult.dist.toLocaleString()} km`],
+                  ['Time Gap', manualResult.timeGap],
+                  ['Required Speed',`${manualResult.speed.toLocaleString()} km/h`]
+                 ].map(([k,v]) => (
+                  <div key={k} style={{ background:'white', borderRadius:'var(--r-sm)', padding:'10px 12px', border:`1px solid ${manualResult.isFraud ? 'var(--danger-border)' : 'var(--success-border)'}` }}>
+                    <p style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>{k}</p>
+                    <p style={{ fontWeight:700, color: manualResult.isFraud ? 'var(--danger)' : 'var(--success)', fontSize:'1rem' }}>{v}</p>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize:'0.85rem', color: manualResult.isFraud ? 'var(--danger)' : 'var(--success)', marginTop:12, fontWeight:600 }}>
+                Based on the distance ({manualResult.dist} km) and time gap ({manualResult.timeGap}), the required speed is {manualResult.speed} km/h. 
+                {manualResult.isFraud 
+                  ? ' This is physically impossible for normal travel.' 
+                  : ' This speed is within normal limits.'}
+                <br/><strong>VERDICT: {manualResult.isFraud ? 'CONFIRMED FRAUD' : 'NOT FRAUD'}</strong>
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Behavioral Anomaly */}

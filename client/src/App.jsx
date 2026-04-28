@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
 import NLPClassifier from './pages/NLPClassifier';
 import RiskEngine from './pages/RiskEngine';
+import Profile from './pages/Profile';
 import { onMessageListener, setupMessaging } from './services/firebase';
 import './index.css';
 
@@ -39,6 +40,7 @@ const App = () => {
               <Route path="/upload"element={<Upload />} />
               <Route path="/nlp"   element={<NLPClassifier />} />
               <Route path="/risk"  element={<RiskEngine />} />
+              <Route path="/profile" element={<Profile />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
