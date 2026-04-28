@@ -24,6 +24,14 @@ if (isFirebaseConfigured) {
   }
 }
 
+// ─── Timeout Wrapper ─────────────────────────────────────────────────────────
+const withTimeout = (promise, ms = 3000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms))
+  ]);
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const userCol = (uid, sub) => collection(db, "users", uid, sub);
 const userDocRef = (uid) => doc(db, "users", uid);
@@ -60,7 +68,7 @@ export const getUploads = async (uid) => {
   if (!db) return [];
   try {
     const q = query(userCol(uid, "uploads"), orderBy("createdAt", "desc"), limit(20));
-    const snap = await getDocs(q);
+    const snap = await withTimeout(getDocs(q));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch { return []; }
 };
@@ -86,7 +94,7 @@ export const getCreditScoreHistory = async (uid) => {
   if (!db) return [];
   try {
     const q = query(userCol(uid, "creditScores"), orderBy("createdAt", "desc"), limit(12));
-    const snap = await getDocs(q);
+    const snap = await withTimeout(getDocs(q));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch { return []; }
 };
@@ -110,7 +118,7 @@ export const getStoredTransactions = async (uid) => {
   if (!db) return [];
   try {
     const q = query(userCol(uid, "transactions"), orderBy("createdAt", "desc"), limit(50));
-    const snap = await getDocs(q);
+    const snap = await withTimeout(getDocs(q));
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch { return []; }
 };

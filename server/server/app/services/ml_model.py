@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-import pickle
+import joblib
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -36,6 +36,9 @@ _ML_DIR = Path(__file__).resolve().parent.parent.parent / "ml_models"
 # ── Model singletons ──────────────────────────────────────────────────────────
 _fraud_model: Any = None
 _credit_model: Any = None
+_nlp_model: Any = None
+_tfidf_vectorizer: Any = None
+_nlp_encoder: Any = None
 
 
 def _load_fraud_model() -> Optional[Any]:
@@ -44,10 +47,12 @@ def _load_fraud_model() -> Optional[Any]:
         return _fraud_model
     model_path = _ML_DIR / "fraud_model.pkl"
     if model_path.exists():
-        with open(model_path, "rb") as f:
-            _fraud_model = pickle.load(f)
-        logger.info("Fraud model loaded from %s", model_path)
-        return _fraud_model
+        try:
+            _fraud_model = joblib.load(model_path)
+            logger.info("Fraud model loaded from %s", model_path)
+            return _fraud_model
+        except Exception as e:
+            logger.error("Failed to load fraud model: %s", e)
     logger.warning("fraud_model.pkl not found — using heuristic fallback")
     return None
 
@@ -58,10 +63,12 @@ def _load_credit_model() -> Optional[Any]:
         return _credit_model
     model_path = _ML_DIR / "credit_model.pkl"
     if model_path.exists():
-        with open(model_path, "rb") as f:
-            _credit_model = pickle.load(f)
-        logger.info("Credit model loaded from %s", model_path)
-        return _credit_model
+        try:
+            _credit_model = joblib.load(model_path)
+            logger.info("Credit model loaded from %s", model_path)
+            return _credit_model
+        except Exception as e:
+            logger.error("Failed to load credit model: %s", e)
     logger.warning("credit_model.pkl not found — using heuristic fallback")
     return None
 
@@ -81,6 +88,41 @@ def _transaction_to_features(txn: dict) -> list[float]:
     return [amount, balance, is_debit, desc_len, hour]
 
 
+def _load_nlp_model() -> tuple[Optional[Any], Optional[Any], Optional[Any]]:
+    global _nlp_model, _tfidf_vectorizer, _nlp_encoder
+    if _nlp_model is not None and _tfidf_vectorizer is not None and _nlp_encoder is not None:
+        return _nlp_model, _tfidf_vectorizer, _nlp_encoder
+
+    model_path = _ML_DIR / "nlp_categorizer.pkl"
+    vec_path = _ML_DIR / "tfidf_vectorizer.pkl"
+    enc_path = _ML_DIR / "nlp_label_encoder.pkl"
+    
+    if model_path.exists() and vec_path.exists() and enc_path.exists():
+        try:
+            _nlp_model = joblib.load(model_path)
+            _tfidf_vectorizer = joblib.load(vec_path)
+            _nlp_encoder = joblib.load(enc_path)
+            logger.info("NLP models loaded from %s", _ML_DIR)
+            return _nlp_model, _tfidf_vectorizer, _nlp_encoder
+        except Exception as e:
+            logger.error("Failed to load NLP models: %s", e)
+    else:
+        logger.warning("nlp_categorizer.pkl or tfidf_vectorizer.pkl or nlp_label_encoder.pkl not found")
+    return None, None, None
+
+def predict_nlp_category(description: str, fallback_category: str = "Other") -> str:
+    """Predict category using the NLP model. Returns fallback_category if model fails/missing."""
+    model, vectorizer, encoder = _load_nlp_model()
+    if model is not None and vectorizer is not None and encoder is not None:
+        try:
+            features = vectorizer.transform([description])
+            cat = model.predict(features)[0]
+            return str(encoder.inverse_transform([cat])[0])
+        except Exception as e:
+            logger.error("NLP inference error: %s — falling back", e)
+    return fallback_category
+
+
 # ── Fraud Detection ───────────────────────────────────────────────────────────
 
 _LARGE_TXN_THRESHOLD = Decimal("50000")
@@ -89,8 +131,36 @@ _SUSPICIOUS_KEYWORDS = [
     "cash withdrawal", "atm", "wire transfer",
 ]
 
+_CITY_COORDS = {
+    "MUMBAI": (19.0760, 72.8777), "BOM": (19.0760, 72.8777),
+    "DELHI": (28.7041, 77.1025), "DEL": (28.7041, 77.1025),
+    "BANGALORE": (12.9716, 77.5946), "BLR": (12.9716, 77.5946),
+    "HYDERABAD": (17.3850, 78.4867), "HYD": (17.3850, 78.4867),
+    "CHENNAI": (13.0827, 80.2707), "MAA": (13.0827, 80.2707),
+    "KOLKATA": (22.5726, 88.3639), "CCU": (22.5726, 88.3639),
+    "PUNE": (18.5204, 73.8567), "PNQ": (18.5204, 73.8567),
+    "AHMEDABAD": (23.0225, 72.5714), "AMD": (23.0225, 72.5714),
+}
 
-def _heuristic_fraud_score(txn: dict) -> float:
+def _get_location_from_desc(desc: str) -> Optional[tuple[str, float, float]]:
+    desc_upper = str(desc).upper()
+    for city, coords in _CITY_COORDS.items():
+        # Match city names as word boundaries to avoid partial matches
+        import re
+        if re.search(rf"\b{city}\b", desc_upper):
+            return city, coords[0], coords[1]
+    return None
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371.0 # Earth radius in km
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def _heuristic_fraud_score(txn: dict, prev_txn: dict = None) -> float:
     """Rule-based fraud score when no ML model is available."""
     score = 0.0
     amount = Decimal(str(txn.get("amount", 0) or 0))
@@ -113,21 +183,59 @@ def _heuristic_fraud_score(txn: dict) -> float:
     return min(score, 1.0)
 
 
-def predict_fraud_score(txn: dict) -> float:
+def predict_fraud_score(txn: dict, prev_txn: dict = None) -> float:
     """
     Returns a fraud probability score in [0, 1].
     Uses the ML model if available, else heuristic fallback.
+    Also incorporates geo-velocity location checking.
+    Mutates txn to add 'geo_flagged' and 'geo_alert' if flagged.
     """
+    base_score = 0.0
+    txn["geo_flagged"] = False
+    
+    # 1. Geo-velocity check (impossible travel)
+    if prev_txn:
+        loc1 = _get_location_from_desc(prev_txn.get("description", ""))
+        loc2 = _get_location_from_desc(txn.get("description", ""))
+        
+        if loc1 and loc2 and loc1[0] != loc2[0]:
+            dist_km = _haversine(loc1[1], loc1[2], loc2[1], loc2[2])
+            
+            t1 = txn.get("date")
+            t2 = prev_txn.get("date")
+            
+            # If dates are the same, assume 2 hours difference at worst. 
+            # If dates differ, assume 24+ hours.
+            time_diff_hours = 24.0
+            if t1 and t2 and t1 == t2:
+                time_diff_hours = 2.0
+            
+            velocity = dist_km / time_diff_hours
+            if velocity > 500:  # Suspiciously fast travel (flight speed or impossible)
+                alert_msg = f"Impossible travel detected! {loc1[0]} to {loc2[0]} ({dist_km:.0f} km)"
+                logger.warning(alert_msg)
+                base_score += 0.85
+                txn["geo_flagged"] = True
+                txn["geo_alert"] = alert_msg
+
+    # 2. ML Model evaluation
     model = _load_fraud_model()
     if model is not None:
         try:
             features = np.array([_transaction_to_features(txn)])
-            prob = model.predict_proba(features)[0][1]
-            return float(prob)
+            
+            if hasattr(model, "decision_function"):
+                score = -model.decision_function(features)[0]
+                prob = 1.0 / (1.0 + math.exp(-score * 10))
+                return min(1.0, float(prob) + base_score)
+            elif hasattr(model, "predict_proba"):
+                prob = model.predict_proba(features)[0][1]
+                return min(1.0, float(prob) + base_score)
         except Exception as e:
             logger.error("Fraud model inference error: %s — falling back to heuristic", e)
 
-    return _heuristic_fraud_score(txn)
+    heuristic_score = _heuristic_fraud_score(txn, prev_txn)
+    return min(1.0, heuristic_score + base_score)
 
 
 # ── Credit Scoring ────────────────────────────────────────────────────────────

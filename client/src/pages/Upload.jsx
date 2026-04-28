@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Clock, Trash2 } from 'lucide-react';
+import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Clock, Trash2, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { uploadBankStatement } from '../services/api';
 import { saveUpload, saveCreditScore, saveTransactions, getUploads } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,10 @@ const Upload = () => {
   const [result, setResult]           = useState(null);
   const [history, setHistory]         = useState([]);
   const [histLoading, setHistLoading] = useState(true);
+  
+  // Geo-fraud alert state
+  const [geoAlertTxn, setGeoAlertTxn] = useState(null);
+  const [cardBlocked, setCardBlocked] = useState(false);
 
   // Load upload history
   useEffect(() => {
@@ -40,25 +44,18 @@ const Upload = () => {
 
   const handleUpload = async () => {
     if (!file) return;
-    setUploading(true); setStatus(null); setResult(null);
+    setUploading(true); setStatus(null); setResult(null); setGeoAlertTxn(null); setCardBlocked(false);
     try {
-      // Call FastAPI backend
-      let backendResult = null;
-      try {
-        backendResult = await uploadBankStatement(file);
-      } catch {
-        // Backend might be offline — use mock result for demo
-        backendResult = {
-          creditScore:   Math.floor(Math.random() * 150) + 650,
-          riskScore:     Math.floor(Math.random() * 100),
-          transactions:  [],
-          categories:    { Housing:1200, Food:400, Transport:200 },
-          message:       'Analysis complete (demo mode)',
-        };
-      }
+      // Call FastAPI backend — ML model evaluates risk & credit score
+      const backendResult = await uploadBankStatement(file);
 
       setResult(backendResult);
       setStatus('success');
+      
+      const flagged = backendResult.transactions?.find(t => t.geo_flagged);
+      if (flagged) {
+        setGeoAlertTxn(flagged);
+      }
 
       // ── Save to Firestore ──────────────────────────────
       if (uid) {
@@ -85,6 +82,7 @@ const Upload = () => {
     } catch (err) {
       console.error("Upload error:", err);
       setStatus('error');
+      setResult({ errorMessage: err?.response?.data?.detail || err.message || 'Backend server is not running. Please start the FastAPI server and try again.' });
     } finally {
       setUploading(false);
     }
@@ -99,6 +97,48 @@ const Upload = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+      {geoAlertTxn && (
+        <div className="alert-overlay" style={{ zIndex:999 }}>
+          <div className="alert-dialog" style={{ textAlign:'center' }}>
+            <div style={{ margin:'0 auto 16px', width:60, height:60, background: cardBlocked ? 'var(--danger)' : 'var(--warning)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {cardBlocked ? <ShieldCheck size={32} color="white" /> : <AlertTriangle size={32} color="white" />}
+            </div>
+            
+            <h2 style={{ fontSize:'1.4rem', color:cardBlocked?'var(--danger)':'var(--text)', marginBottom:8 }}>
+              {cardBlocked ? 'Card Blocked' : 'Suspicious Transaction Detected!'}
+            </h2>
+            
+            {cardBlocked ? (
+              <p style={{ color:'var(--text-muted)' }}>For your security, we have blocked your card due to a confirmed fraudulent transaction or lack of response.</p>
+            ) : (
+              <>
+                <p style={{ fontSize:'1.1rem', marginBottom:8 }}>
+                  ₹{geoAlertTxn.amount} at {geoAlertTxn.description}.
+                </p>
+                <p style={{ fontSize:'0.9rem', color:'var(--text-muted)', marginBottom:16 }}>
+                  {geoAlertTxn.geo_alert || 'Our system detected impossible travel.'}
+                </p>
+                <div style={{ padding:'12px', background:'var(--danger-bg)', borderRadius:'var(--r-md)', border:'1px solid var(--danger-border)', marginBottom:20 }}>
+                  <p style={{ fontWeight:700, color:'var(--danger)', fontSize:'1.2rem' }}>
+                    Geo-Velocity Alert
+                  </p>
+                  <p style={{ fontSize:'0.8rem', color:'var(--danger)' }}>Was this you?</p>
+                </div>
+                <div className="alert-actions">
+                  <button className="btn btn-outline" onClick={() => setGeoAlertTxn(null)}>Yes, it was me</button>
+                  <button className="btn btn-danger" onClick={() => setCardBlocked(true)}>No, block card</button>
+                </div>
+              </>
+            )}
+
+            {cardBlocked && (
+              <button className="btn btn-primary" style={{ marginTop:24 }} onClick={() => { setGeoAlertTxn(null); setCardBlocked(false); }}>
+                Dismiss
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="page-header">
         <div>
@@ -175,9 +215,14 @@ const Upload = () => {
                 )}
 
                 {status === 'error' && (
-                  <div style={{ display:'flex', gap:10, alignItems:'center', background:'var(--danger-bg)', borderRadius:'var(--r-md)', padding:12, marginBottom:16 }}>
-                    <AlertCircle size={16} color="var(--danger)" />
-                    <span style={{ fontSize:'0.85rem', color:'var(--danger)' }}>Upload failed. Check your connection and try again.</span>
+                  <div style={{ display:'flex', gap:10, alignItems:'flex-start', background:'var(--danger-bg)', borderRadius:'var(--r-md)', padding:12, marginBottom:16, flexDirection:'column' }}>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <AlertCircle size={16} color="var(--danger)" />
+                      <span style={{ fontSize:'0.85rem', fontWeight:600, color:'var(--danger)' }}>Upload Analysis Failed</span>
+                    </div>
+                    <p style={{ fontSize:'0.8rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                      {result?.errorMessage || 'Ensure the FastAPI backend server is running so the ML model can evaluate the risk and credit score.'}
+                    </p>
                   </div>
                 )}
 

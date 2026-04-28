@@ -1,17 +1,24 @@
 """
 app/routes/upload.py
 ────────────────────
-POST /upload-statement
+Two upload endpoints:
 
-Accepts a PDF file, saves it to disk, launches async background
-parsing (PDF → transactions → Firestore), and returns immediately with
-a statement_id for polling.
+1. POST /upload-statement  — async background processing (original)
+2. POST /upload           — synchronous ML analysis returning credit & risk score
+
+Both accept PDF and CSV files.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import re
+import tempfile
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from google.cloud.firestore_v1.client import Client as FirestoreClient
@@ -22,16 +29,99 @@ from app.models.user import User
 from app.models.transaction import BankStatement, Transaction
 from app.schemas.transaction import UploadResponse, FCMTokenUpdate
 from app.services.pdf_parser import extract_transactions
-from app.services.ml_model import predict_fraud_score
+from app.services.ml_model import predict_fraud_score, predict_credit_score, predict_nlp_category
 from app.utils.auth import get_current_user
 
-router = APIRouter(prefix="/upload-statement", tags=["Upload"])
+router = APIRouter(tags=["Upload"])
 logger = logging.getLogger(__name__)
 
-_ALLOWED_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+_ALLOWED_CONTENT_TYPES = {
+    "application/pdf", "application/x-pdf",
+    "text/csv", "application/vnd.ms-excel",
+}
+
+# ── NLP Keywords for transaction classification ─────────────────────────────────
+_NLP_RULES = [
+    {"category": "Food",          "keywords": ["swiggy","zomato","food","restaurant","cafe","pizza","burger","hotel","grocer","bigbasket","blinkit","dominos","kfc"]},
+    {"category": "Travel",        "keywords": ["uber","ola","rapido","irctc","train","flight","airport","taxi","metro","bus","petrol","fuel","indigo","spicejet","cab"]},
+    {"category": "Bills",         "keywords": ["airtel","jio","bsnl","electricity","bill","recharge","postpaid","broadband","water","gas","lic","insurance","rent"]},
+    {"category": "Shopping",      "keywords": ["amazon","flipkart","myntra","ajio","meesho","nykaa","shopping","purchase","store","mall","reliance","dmart","croma"]},
+    {"category": "Health",        "keywords": ["pharmacy","hospital","clinic","doctor","medical","apollo","medplus","netmeds","1mg","diagnostic","health","medicine"]},
+    {"category": "Entertainment", "keywords": ["netflix","spotify","prime","hotstar","youtube","disney","zee5","ott","cinema","movie","pvr","gaming"]},
+]
 
 
-# ── Background task ───────────────────────────────────────────────────────────
+def _classify_transaction(description: str) -> str:
+    """Classify transaction using ML model with NLP heuristics as fallback."""
+    # First try heuristic keyword match
+    lower = description.lower()
+    for rule in _NLP_RULES:
+        if any(kw in lower for kw in rule["keywords"]):
+            return rule["category"]
+    
+    # If no heuristic match, use ML NLP model
+    return predict_nlp_category(description)
+
+
+def _parse_csv_transactions(content: bytes) -> list[dict]:
+    """Parse CSV bank statement into transaction-like dicts."""
+    text = content.decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    transactions = []
+    for row in reader:
+        # Try common column names
+        desc = (
+            row.get("description") or row.get("Description")
+            or row.get("narration") or row.get("Narration")
+            or row.get("particulars") or row.get("Particulars") or ""
+        )
+        amt_str = (
+            row.get("amount") or row.get("Amount")
+            or row.get("debit") or row.get("Debit")
+            or row.get("withdrawal") or row.get("Withdrawal") or "0"
+        )
+        bal_str = (
+            row.get("balance") or row.get("Balance")
+            or row.get("closing") or row.get("Closing") or "0"
+        )
+        date_str = (
+            row.get("date") or row.get("Date")
+            or row.get("transaction_date") or row.get("Transaction Date") or ""
+        )
+
+        # Clean amount
+        amt_clean = re.sub(r"[₹$€£,\s]", "", str(amt_str).strip())
+        bal_clean = re.sub(r"[₹$€£,\s]", "", str(bal_str).strip())
+        try:
+            amount = float(amt_clean) if amt_clean else 0.0
+        except ValueError:
+            amount = 0.0
+        try:
+            balance = float(bal_clean) if bal_clean else 0.0
+        except ValueError:
+            balance = 0.0
+
+        if amount == 0 and not desc:
+            continue
+
+        # Infer transaction type
+        credit_kw = re.compile(
+            r"\b(credit|salary|refund|interest|reversal|cashback|deposit)\b",
+            re.IGNORECASE,
+        )
+        tx_type = "credit" if credit_kw.search(str(desc)) else "debit"
+
+        transactions.append({
+            "date": date_str,
+            "description": str(desc),
+            "amount": abs(amount),
+            "balance": balance,
+            "transaction_type": tx_type,
+        })
+    return transactions
+
+
+# ── Background task (for the async upload-statement endpoint) ────────────────
 
 def _process_statement(statement_id: str, file_path: str, user_id: str) -> None:
     """
@@ -45,23 +135,21 @@ def _process_statement(statement_id: str, file_path: str, user_id: str) -> None:
     stmt_ref = db.collection(BANK_STATEMENTS_COL).document(statement_id)
 
     try:
-        # Mark as processing
         stmt_ref.update({"status": "processing"})
 
-        # Parse PDF
         parsed = extract_transactions(file_path)
 
-        # Build transaction documents and write to Firestore
         batch = db.batch()
+        prev_tx = None
         for p in parsed:
-            fraud_score = predict_fraud_score(
-                {
-                    "amount": p.amount,
-                    "balance": p.balance,
-                    "description": p.description,
-                    "transaction_type": p.transaction_type,
-                }
-            )
+            tx_dict = {
+                "amount": p.amount,
+                "balance": p.balance,
+                "description": p.description,
+                "transaction_type": p.transaction_type,
+                "date": p.date.isoformat() if p.date else None,
+            }
+            fraud_score = predict_fraud_score(tx_dict, prev_txn=prev_tx)
             txn = Transaction(
                 statement_id=statement_id,
                 user_id=user_id,
@@ -70,13 +158,13 @@ def _process_statement(statement_id: str, file_path: str, user_id: str) -> None:
                 amount=p.amount,
                 balance=p.balance,
                 transaction_type=p.transaction_type,
-                is_suspicious=fraud_score >= 0.6,
+                is_suspicious=fraud_score >= 0.6 or tx_dict.get("geo_flagged", False),
                 fraud_score=round(fraud_score, 4),
             )
             txn_ref = db.collection(TRANSACTIONS_COL).document(txn.id)
             batch.set(txn_ref, txn.to_dict())
+            prev_tx = tx_dict
 
-        # Update statement status
         batch.update(stmt_ref, {
             "status": "done",
             "total_transactions": len(parsed),
@@ -93,13 +181,176 @@ def _process_statement(statement_id: str, file_path: str, user_id: str) -> None:
             pass
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# ROUTE 1: POST /upload — synchronous analysis returning scores immediately
+# ──────────────────────────────────────────────────────────────────────────────
 
 @router.post(
-    "",
+    "/upload",
+    summary="Upload & analyse a bank statement (synchronous)",
+    description=(
+        "Upload a PDF or CSV bank statement. The file is parsed inline, "
+        "transactions are scored by the ML fraud model, and a credit score "
+        "is computed. Returns all results immediately."
+    ),
+)
+async def upload_and_analyse(
+    file: UploadFile = File(..., description="Bank statement PDF or CSV"),
+) -> dict[str, Any]:
+    """
+    Synchronous upload endpoint used by the React frontend.
+    Returns: { creditScore, riskScore, transactions, categories, message }
+    """
+    content = await file.read()
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum size of {settings.MAX_UPLOAD_SIZE_MB} MB.",
+        )
+
+    # ── Parse transactions ──────────────────────────────────────────────
+    tx_dicts: list[dict] = []
+    is_csv = file.content_type in ("text/csv", "application/vnd.ms-excel") or (
+        file.filename and file.filename.lower().endswith(".csv")
+    )
+
+    if is_csv:
+        tx_dicts = _parse_csv_transactions(content)
+    else:
+        # PDF — write to temp file and use pdfplumber / PyMuPDF
+        suffix = ".pdf"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            parsed = extract_transactions(tmp_path)
+            tx_dicts = [
+                {
+                    "date": p.date.isoformat() if p.date else None,
+                    "description": p.description,
+                    "amount": float(p.amount),
+                    "balance": float(p.balance) if p.balance is not None else 0.0,
+                    "transaction_type": p.transaction_type,
+                }
+                for p in parsed
+            ]
+        except Exception as e:
+            logger.warning("PDF parse failed: %s", e)
+            tx_dicts = []
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    if not tx_dicts:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not extract any transactions from the uploaded file. "
+                   "Ensure the file is a valid bank statement in PDF or CSV format.",
+        )
+
+    # ── ML fraud scoring per transaction ────────────────────────────────
+    total_income = 0.0
+    total_expenses = 0.0
+    balances: list[float] = []
+    num_suspicious = 0
+    num_overdrafts = 0
+    category_totals: dict[str, float] = {}
+    scored_txns: list[dict] = []
+
+    # Sort transactions by date (oldest first or newest first) so consecutive checks make sense.
+    # Usually bank statements are sorted by date. We will just pass the previous one in the list.
+    prev_tx = None
+
+    for tx in tx_dicts:
+        fraud_score = predict_fraud_score(tx, prev_txn=prev_tx)
+        geo_flagged = tx.get("geo_flagged", False)
+        geo_alert = tx.get("geo_alert", "")
+        
+        is_suspicious = fraud_score >= 0.6 or geo_flagged
+        if is_suspicious:
+            num_suspicious += 1
+
+        category = _classify_transaction(tx.get("description", ""))
+
+        amount = float(tx.get("amount", 0))
+        balance = float(tx.get("balance", 0))
+        tx_type = tx.get("transaction_type", "debit")
+
+        if tx_type == "credit":
+            total_income += amount
+        else:
+            total_expenses += amount
+            category_totals[category] = category_totals.get(category, 0) + amount
+
+        if balance < 0:
+            num_overdrafts += 1
+        balances.append(balance)
+
+        scored_txns.append({
+            **tx,
+            "fraud_score": round(fraud_score, 4),
+            "is_suspicious": is_suspicious,
+            "geo_flagged": geo_flagged,
+            "geo_alert": geo_alert,
+            "category": category,
+        })
+        
+        prev_tx = tx
+
+    # ── Compute credit score via ML model ───────────────────────────────
+    avg_balance = sum(balances) / len(balances) if balances else 0.0
+    summary = {
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "avg_balance": avg_balance,
+        "num_overdrafts": num_overdrafts,
+        "num_suspicious": num_suspicious,
+        "months": max(1, len(set(
+            tx.get("date", "")[:7] for tx in tx_dicts if tx.get("date")
+        )) or 1),
+    }
+    credit_result = predict_credit_score(summary)
+    credit_score = credit_result["score"]
+
+    # ── Compute overall risk score (0-100) ──────────────────────────────
+    # Weighted composite: expenses ratio + fraud density + overdraft penalty
+    if total_income > 0:
+        expense_ratio = min(total_expenses / total_income, 1.5)
+    else:
+        expense_ratio = 0.5
+
+    fraud_density = (num_suspicious / len(tx_dicts)) if tx_dicts else 0
+    overdraft_rate = (num_overdrafts / len(tx_dicts)) if tx_dicts else 0
+
+    risk_score = int(min(100, max(0,
+        expense_ratio * 30 +
+        fraud_density * 40 +
+        overdraft_rate * 20 +
+        (100 - credit_score / 8.5) * 0.1  # inverse of credit health
+    )))
+
+    logger.info(
+        "Synchronous analysis: %d transactions, credit=%d, risk=%d",
+        len(scored_txns), credit_score, risk_score,
+    )
+
+    return {
+        "creditScore": credit_score,
+        "riskScore": risk_score,
+        "transactions": scored_txns,
+        "categories": category_totals,
+        "message": f"Analysis complete — {len(scored_txns)} transactions processed by ML model.",
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ROUTE 2: POST /upload-statement — async background processing (original)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/upload-statement",
     response_model=UploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload a bank statement PDF",
+    summary="Upload a bank statement PDF (async)",
     description=(
         "Upload a PDF bank statement. The file is saved and parsed asynchronously. "
         "Poll GET /transactions?statement_id=<id> to retrieve results."
@@ -115,7 +366,7 @@ async def upload_statement(
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Only PDF files are accepted. Got: {file.content_type}",
+            detail=f"Only PDF/CSV files are accepted. Got: {file.content_type}",
         )
 
     content = await file.read()
@@ -154,8 +405,12 @@ async def upload_statement(
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# ROUTE 3: PUT /upload-statement/fcm-token
+# ──────────────────────────────────────────────────────────────────────────────
+
 @router.put(
-    "/fcm-token",
+    "/upload-statement/fcm-token",
     summary="Register or update FCM device token",
     status_code=status.HTTP_200_OK,
 )

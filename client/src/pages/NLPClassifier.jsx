@@ -111,13 +111,6 @@ const NLPClassifier = () => {
   const avgConf      = classified.length ? Math.round(classified.reduce((s, t) => s + (t.confidence || 0.8), 0) / classified.length * 100) : 0;
   const filtered     = filter === 'All' ? classified : classified.filter(t => t.category === filter);
 
-  if (loading) return (
-    <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'60vh', flexDirection:'column', gap:16 }}>
-      <div className="spinner" />
-      <p style={{ color:'var(--text-muted)' }}>Running NLP classification engine…</p>
-    </div>
-  );
-
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
       {/* Header */}
