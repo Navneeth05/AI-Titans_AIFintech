@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.firestore_db import get_firestore_client
-from app.routes import upload, transactions, fraud, credit
+from app.routes import upload, transactions, fraud, credit, email
 from app.services.firebase_service import ensure_firebase_app
 
 logging.basicConfig(
@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(transactions.router, prefix=PREFIX)
     app.include_router(fraud.router,        prefix=PREFIX)
     app.include_router(credit.router,       prefix=PREFIX)
+    app.include_router(email.router,        prefix=PREFIX)
 
     # ── Health check ───────────────────────────────────────────────────────
     @app.get("/health", tags=["Health"], summary="Liveness check")

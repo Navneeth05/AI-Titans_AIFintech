@@ -1,22 +1,16 @@
 /**
- * Email alert service — sends fraud alerts via EmailJS.
- * Falls back to browser Notifications when EmailJS is not configured.
- * Setup: https://www.emailjs.com → create account → get Service ID, Template ID, Public Key
+ * Email alert service — sends fraud alerts via FastAPI backend.
+ * Falls back to browser Notifications when backend is unreachable or missing SMTP credentials.
  */
-import emailjs from '@emailjs/browser';
 
-const SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE_ID  || '';
-const TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || '';
-const KEY      = import.meta.env.VITE_EMAILJS_PUBLIC_KEY  || '';
-
-export const EMAILJS_CONFIGURED = Boolean(SERVICE && TEMPLATE && KEY);
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
- * Send a fraud alert email.  Falls back to browser notification.
+ * Send a fraud alert email. Falls back to browser notification.
  */
-export const sendFraudAlertEmail = async ({
-  toEmail, toName, merchant, amount, riskScore, location, reason,
-}) => {
+export const sendFraudAlertEmail = async (payload) => {
+  const { toEmail, toName, merchant, amount, riskScore, location, reason } = payload;
+  
   const body =
     `Merchant: ${merchant}\n` +
     `Amount: ₹${amount}\n` +
@@ -24,28 +18,27 @@ export const sendFraudAlertEmail = async ({
     `Location: ${location || 'Unknown'}\n` +
     `Reason: ${reason || 'Behavioral + Location anomaly detected'}`;
 
-  // ── EmailJS path ────────────────────────────────────────────────────────
-  if (EMAILJS_CONFIGURED) {
-    try {
-      const result = await emailjs.send(SERVICE, TEMPLATE, {
-        to_email:   toEmail,
-        to_name:    toName || 'User',
-        subject:    '🚨 FinSmart Fraud Alert',
-        merchant,
-        amount:     `₹${amount}`,
-        risk_score: `${riskScore}/100`,
-        location:   location || 'Unknown',
-        reason:     reason || 'Behavioral + Location anomaly',
-        message:    body,
-      }, KEY);
-      return { success: true, method: 'emailjs', result };
-    } catch (err) {
-      console.error('[EmailJS] Send failed:', err);
+  // ── FastAPI Backend path ────────────────────────────────────────────────
+  try {
+    const response = await fetch(`${API_URL}/api/v1/email/fraud-alert`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      return { success: true, method: 'fastapi' };
+    } else {
+      console.warn('[EmailService] Backend failed to send email. Ensure SMTP_PASSWORD is set in server/.env', await response.text());
     }
+  } catch (err) {
+    console.error('[EmailService] API unreachable:', err);
   }
 
   // ── Fallback: browser notification ───────────────────────────────────────
-  console.warn('[Email] EmailJS not configured — using notification fallback.');
+  console.warn('[EmailService] Falling back to browser notification.');
   console.info('[Alert body]', body);
 
   if (typeof window !== 'undefined') {
