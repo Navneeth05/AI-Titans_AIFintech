@@ -23,11 +23,16 @@ async def send_fraud_alert(req: FraudAlertRequest):
     sender_password = os.environ.get("SMTP_PASSWORD")
 
     if not sender_password:
-        # If password is not set, we can't send the email. Return a 503 Service Unavailable.
-        raise HTTPException(
-            status_code=503,
-            detail="SMTP_PASSWORD environment variable not set in server. Cannot send email."
-        )
+        # If password is not set, simulate sending for hackathon demo purposes
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"✉️  MOCK EMAIL SENT (Add SMTP_PASSWORD to .env for real emails)")
+        print(f"To: {req.toEmail}")
+        print(f"From: {sender_email}")
+        print(f"Subject: 🚨 FinSmart Fraud Alert: Suspicious transaction detected")
+        print("────────────────────────────────────────────────────")
+        print(body)
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        return {"success": True, "message": "Email simulated successfully (SMTP password not configured)"}
 
     # Build the email
     msg = EmailMessage()
