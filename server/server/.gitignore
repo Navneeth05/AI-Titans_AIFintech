@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+firebase_credentials.json
+
+# Uploads (user data — never commit)
+uploads/
+
+# ML model binaries (large files — use Git LFS or external storage)
+ml_models/*.pkl
+ml_models/*.joblib
+ml_models/*.h5
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Alembic
+alembic/versions/*.pyc
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+*.log

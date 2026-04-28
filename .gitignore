@@ -1,0 +1,30 @@
+# ── Dependencies ────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── Environment / Secrets ───────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Firebase service account keys ───────────────
+*firebase-adminsdk*.json
+firebase_cred*.json
+
+# ── Build output ────────────────────────────────
+dist/
+build/
+*.egg-info/
+
+# ── IDE ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
