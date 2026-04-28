@@ -1,77 +1,86 @@
-Problem Statement
-Traditional bank statements are hard to understand, so users cannot easily track spending habits or get personalized financial insights from raw PDF data. At the same time, most fraud systems are reactive and detect suspicious activity only after a transaction has already caused damage. This project addresses both issues by building an AI system that analyzes bank statements, classifies transactions, estimates financial health, and detects fraud in real time with explainable alerts.
+# 💳 FinSmart AI: Next-Gen Financial Intelligence
 
-Project Overview
-This system combines NLP, machine learning, and geospatial analysis to convert unstructured bank statements into structured financial insights. It processes PDF statements, categorizes transactions such as food, bills, shopping, travel, and entertainment, and monitors transaction behavior for anomalies. It also detects impossible travel, suspicious spending patterns, and risky cardless ATM usage to flag fraud instantly.
+![FinSmart AI Banner](https://img.shields.io/badge/Status-AI--Powered-blueviolet?style=for-the-badge)
+![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi)
+![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=for-the-badge&logo=react)
+![Gemini](https://img.shields.io/badge/AI-Gemini%201.5%20Pro-blue?style=for-the-badge)
 
-Objectives
-Extract and process financial data from PDF bank statements using pdfplumber and regex.
+**FinSmart AI** is a cutting-edge financial platform designed to bridge the gap between complex bank data and actionable insights. Leveraging the power of **Google Gemini 1.5 Pro**, it automatically analyzes bank statements, classifies spending, and protects users with a high-fidelity, real-time fraud detection engine.
 
-Classify transactions into categories using TF-IDF or BERT.
+---
 
-Analyze spending patterns and estimate a financial health score based on income versus expenditure.
+## 🌟 Key Features
 
-Detect fraud using location-based, behavior-based, and cardless withdrawal validation checks.
+### 🧠 1. AI-Powered Statement Analysis
+*   **Gemini 1.5 Pro Integration**: Automatically "reads" PDF bank statements with professional financial reasoning.
+*   **Automated Categorization**: Recognizes spending patterns (Food, Health, Travel, etc.) without manual input.
+*   **Credit & Risk Profiling**: Generates dynamic scores based on savings ratios and transaction consistency.
 
-Provide real-time alerts with explainable AI reasoning for every flagged transaction.
+### 🛡️ 2. Real-Time Fraud Engine
+*   **Impossible Travel Detection**: Flags transactions that occur across impossible geographical distances in short timeframes.
+*   **Urgent Notification Stream**: Dispatches continuous email alerts every 10 seconds during a security event.
+*   **Interactive Security Window**: Provides a 120-second window for users to confirm or block suspicious activity before the card is suspended.
 
-Core Modules
-PDF Parser.
+### 📊 3. Modern Financial Dashboard
+*   **Data-Driven Insights**: Visualize income vs. spending trends using high-performance Recharts.
+*   **Instant Sync**: UI updates in real-time as analysis completes in the background.
+*   **History Ledger**: A persistent, searchable record of all past uploads and security alerts.
 
-NLP Classifier.
+---
 
-Financial Analysis Engine.
+## 🛠️ Tech Stack
 
-Credit Score Estimation.
+| Component | Technology |
+| :--- | :--- |
+| **Frontend** | React, Vite, Vanilla CSS (Glassmorphism), Recharts |
+| **Backend** | FastAPI (Python 3.13), Uvicorn |
+| **AI / ML** | Google Gemini 1.5 Pro API, Scikit-Learn (NLP) |
+| **Database** | Firebase Firestore (Real-time NoSQL) |
+| **Security** | JWT Authentication, SMTP Alert System |
 
-Fraud Detection Engine.
+---
 
-Risk Scoring Engine.
+## 🚀 Getting Started
 
-Notification System.
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Navneeth05/AI-Titans_AIFintech.git
+cd AI-Titans_AIFintech
+```
 
-Explainable AI Layer.
+### 2. Backend Setup
+```bash
+cd server/server
+pip install -r requirements.txt
+# Add your GEMINI_API_KEY and SMTP_PASSWORD to .env
+python run.py
+```
 
-Frontend Dashboard.
+### 3. Frontend Setup
+```bash
+cd client
+npm install
+npm run dev
+```
 
-Database Layer.
+---
 
-Fraud Detection Approach
-The fraud engine uses a three-layer detection strategy:
+## 📂 Project Structure
+```text
+├── client/                # React Frontend (Vite)
+│   ├── src/pages          # Dashboard, Risk Engine, Upload
+│   └── src/services       # Firebase, Firestore, API logic
+├── server/                # FastAPI Backend
+│   ├── app/routes         # Analysis & Email endpoints
+│   ├── app/services       # Gemini & ML model logic
+│   └── app/utils          # PDF Parsing & Auth
+└── PROGRESS.md            # Live task tracking & roadmap
+```
 
-Location-based checks: Flags impossible travel between transactions using distance and time analysis.
+---
 
-Behavior-based checks: Uses Isolation Forest and clustering to detect unusual spending patterns.
+## 🛡️ Security
+FinSmart AI prioritizes data privacy. Bank statements are processed using the **Gemini File API**, which ensures that sensitive PDF data is analyzed securely and deleted immediately after the session concludes.
 
-Cardless ATM checks: Verifies device ID, OTP, and GPS location matching.
-
-Tech Stack
-Frontend: React.js, Tailwind CSS, Chart.js.
-
-Backend: FastAPI or Flask, REST APIs.
-
-AI/ML: Scikit-learn, BERT, Isolation Forest.
-
-NLP: pdfplumber, PyMuPDF, TF-IDF, BERT.
-
-Database: firebase 
-
-Expected Outcomes
-Accurate transaction classification across five categories.
-
-Clear monthly and category-wise financial insights.
-
-Reduced false positives through behavioral learning.
-
-Key Advantages
-Real-time fraud detection.
-
-Explainable AI decisions.
-
-Multi-layer security.
-
-Cloud-ready and scalable architecture.
-
-Limitations
-The system depends on data quality, the credit score is an estimation, and labeled training data is needed for best accuracy.
-
+---
+*Developed by the AI Titans for the future of FinTech.*
