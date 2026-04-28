@@ -22,6 +22,22 @@ async def send_fraud_alert(req: FraudAlertRequest):
     sender_email = os.environ.get("SMTP_EMAIL", "navneethks05@gmail.com")
     sender_password = os.environ.get("SMTP_PASSWORD")
 
+    body = f"""Hello {req.toName},
+
+We have detected a highly suspicious transaction on your account.
+
+Merchant: {req.merchant}
+Amount: ₹{req.amount}
+Risk Score: {req.riskScore}/100 (HIGH RISK)
+Location: {req.location}
+Reason: {req.reason}
+
+If this was not you, please log in immediately to block your card.
+
+Stay safe,
+FinSmart AI Security Team
+"""
+
     if not sender_password:
         # If password is not set, simulate sending for hackathon demo purposes
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -40,21 +56,6 @@ async def send_fraud_alert(req: FraudAlertRequest):
     msg["From"] = sender_email
     msg["To"] = req.toEmail
 
-    body = f"""Hello {req.toName},
-
-We have detected a highly suspicious transaction on your account.
-
-Merchant: {req.merchant}
-Amount: ₹{req.amount}
-Risk Score: {req.riskScore}/100 (HIGH RISK)
-Location: {req.location}
-Reason: {req.reason}
-
-If this was not you, please log in immediately to block your card.
-
-Stay safe,
-FinSmart AI Security Team
-"""
     msg.set_content(body)
 
     try:
