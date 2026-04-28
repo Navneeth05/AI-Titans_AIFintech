@@ -23,7 +23,10 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // Save/update user profile in Firestore on every login
+      // Immediately set the base user so the UI is unblocked and login is instant
+      setUser(firebaseUser);
+
+      // Save/update user profile in Firestore on every login in the background
       try {
         await saveUserProfile(firebaseUser.uid, {
           email:       firebaseUser.email,
@@ -34,10 +37,11 @@ export const AuthProvider = ({ children }) => {
         
         // Fetch full profile (including bank)
         const profile = await getUserProfile(firebaseUser.uid);
-        setUser({ ...firebaseUser, ...profile });
+        if (profile) {
+          setUser(prev => ({ ...prev, ...profile }));
+        }
       } catch (err) {
         console.warn("[Firestore] Could not save/fetch user profile:", err.message);
-        setUser(firebaseUser); // fallback
       }
     });
 
