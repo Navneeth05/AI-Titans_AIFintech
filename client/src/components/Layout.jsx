@@ -58,9 +58,12 @@ const Layout = () => {
           <div className="user-info" style={{ flex:1, minWidth:0 }}>
             <span>{user?.displayName ?? 'Demo User'}</span>
             <span>{user?.email ?? 'dev@finsmart.local'}</span>
+            <span style={{ fontSize:'0.65rem', color:'var(--teal)', fontWeight:600, marginTop:2, display:'block' }}>
+              🏦 {user?.bank ?? 'Bank Not Linked'}
+            </span>
           </div>
           <button onClick={handleLogout} title="Logout"
-            style={{ background:'transparent', color:'var(--text-muted)', padding:4, flexShrink:0 }}>
+            style={{ background:'transparent', color:'var(--text-muted)', padding:4, flexShrink:0, alignSelf:'center' }}>
             <LogOut size={15} />
           </button>
         </div>

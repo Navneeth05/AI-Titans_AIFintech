@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerWithEmail, loginWithGoogle, isFirebaseConfigured } from '../services/firebase';
 import { saveUserProfile } from '../services/firestore';
-import { Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, AlertCircle, CheckCircle2, Building } from 'lucide-react';
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -10,8 +10,10 @@ const Signup = () => {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm]   = useState('');
+  const [bank, setBank]         = useState('HDFC Bank');
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   const handleSignup = async (e) => {
     e.preventDefault();
@@ -25,9 +27,10 @@ const Signup = () => {
       await saveUserProfile(user.uid, {
         displayName: name,
         email: user.email,
+        bank: bank,
         createdAt: new Date().toISOString(),
       });
-      navigate('/');
+      setVerificationSent(true);
     } catch (err) {
       setError(
         err.code === 'auth/email-already-in-use'  ? 'An account with this email already exists.' :
@@ -40,7 +43,16 @@ const Signup = () => {
 
   const handleGoogle = async () => {
     setError('');
-    try { await loginWithGoogle(); navigate('/'); }
+    try { 
+      const user = await loginWithGoogle();
+      await saveUserProfile(user.uid, {
+        displayName: user.displayName,
+        email: user.email,
+        bank: bank,
+        createdAt: new Date().toISOString(),
+      });
+      navigate('/'); 
+    }
     catch (err) { setError(err.message || 'Google sign-in failed.'); }
   };
 
@@ -94,55 +106,87 @@ const Signup = () => {
             </div>
           )}
 
-          <form onSubmit={handleSignup}>
-            <div className="input-group">
-              <label className="input-label">Full Name</label>
-              <div style={{ position:'relative' }}>
-                <User size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
-                <input type="text" className="input-field" value={name} onChange={e => setName(e.target.value)} required placeholder="Your full name" style={{ paddingLeft:38 }} />
+          {verificationSent ? (
+            <div style={{ display:'flex', gap:10, alignItems:'flex-start', background:'rgba(16,185,129,0.1)', border:'1px solid var(--success)', borderRadius:'var(--r-md)', padding:'14px 16px', marginBottom:16, flexDirection:'column' }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <CheckCircle2 size={20} color="var(--success)" />
+                <span style={{ fontSize:'1rem', fontWeight:600, color:'var(--success)' }}>Account Created!</span>
               </div>
+              <p style={{ fontSize:'0.85rem', color:'var(--text-muted)', lineHeight:1.5 }}>
+                We've sent a verification link to <strong>{email}</strong>. Please check your inbox and verify your email to continue.
+              </p>
+              <button className="btn btn-primary" style={{ marginTop:10 }} onClick={() => navigate('/login')}>
+                Go to Login
+              </button>
             </div>
-
-            <div className="input-group">
-              <label className="input-label">Email</label>
-              <div style={{ position:'relative' }}>
-                <Mail size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
-                <input type="email" className="input-field" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={{ paddingLeft:38 }} />
-              </div>
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Password</label>
-              <div style={{ position:'relative' }}>
-                <Lock size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
-                <input type="password" className="input-field" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Min 6 characters" style={{ paddingLeft:38 }} />
-              </div>
-              {password.length > 0 && (
-                <div style={{ marginTop:6 }}>
-                  <div style={{ display:'flex', gap:4 }}>
-                    {[1,2,3].map(i => <div key={i} style={{ flex:1, height:3, borderRadius:2, background: i <= strength ? strengthColor[strength] : 'var(--border)', transition:'all 0.3s' }} />)}
-                  </div>
-                  <p style={{ fontSize:'0.72rem', color:strengthColor[strength], marginTop:3 }}>{strengthLabel[strength]}</p>
+          ) : (
+            <form onSubmit={handleSignup}>
+              <div className="input-group">
+                <label className="input-label">Full Name</label>
+                <div style={{ position:'relative' }}>
+                  <User size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
+                  <input type="text" className="input-field" value={name} onChange={e => setName(e.target.value)} required placeholder="Your full name" style={{ paddingLeft:38 }} />
                 </div>
-              )}
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">Confirm Password</label>
-              <div style={{ position:'relative' }}>
-                <Lock size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
-                <input type="password" className="input-field" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="Repeat password" style={{ paddingLeft:38, borderColor: confirm && confirm !== password ? 'var(--danger)' : '' }} />
-                {confirm && confirm === password && <CheckCircle2 size={15} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)' }} color="var(--success)" />}
               </div>
-            </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:4 }} disabled={loading || !isFirebaseConfigured}>
-              {loading
-                ? <><span style={{ width:14, height:14, border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'white', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} /> Creating account…</>
-                : <>Create Account <ArrowRight size={15} /></>
-              }
-            </button>
-          </form>
+              <div className="input-group">
+                <label className="input-label">Primary Bank</label>
+                <div style={{ position:'relative' }}>
+                  <Building size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
+                  <select className="input-field" value={bank} onChange={e => setBank(e.target.value)} required style={{ paddingLeft:38, appearance: 'none' }}>
+                    <option value="HDFC Bank">HDFC Bank</option>
+                    <option value="State Bank of India (SBI)">State Bank of India (SBI)</option>
+                    <option value="ICICI Bank">ICICI Bank</option>
+                    <option value="Axis Bank">Axis Bank</option>
+                    <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+                    <option value="Punjab National Bank (PNB)">Punjab National Bank (PNB)</option>
+                    <option value="Bank of Baroda">Bank of Baroda</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Email</label>
+                <div style={{ position:'relative' }}>
+                  <Mail size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
+                  <input type="email" className="input-field" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={{ paddingLeft:38 }} />
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Password</label>
+                <div style={{ position:'relative' }}>
+                  <Lock size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
+                  <input type="password" className="input-field" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Min 6 characters" style={{ paddingLeft:38 }} />
+                </div>
+                {password.length > 0 && (
+                  <div style={{ marginTop:6 }}>
+                    <div style={{ display:'flex', gap:4 }}>
+                      {[1,2,3].map(i => <div key={i} style={{ flex:1, height:3, borderRadius:2, background: i <= strength ? strengthColor[strength] : 'var(--border)', transition:'all 0.3s' }} />)}
+                    </div>
+                    <p style={{ fontSize:'0.72rem', color:strengthColor[strength], marginTop:3 }}>{strengthLabel[strength]}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Confirm Password</label>
+                <div style={{ position:'relative' }}>
+                  <Lock size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-dim)' }} />
+                  <input type="password" className="input-field" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="Repeat password" style={{ paddingLeft:38, borderColor: confirm && confirm !== password ? 'var(--danger)' : '' }} />
+                  {confirm && confirm === password && <CheckCircle2 size={15} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)' }} color="var(--success)" />}
+                </div>
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:4 }} disabled={loading || !isFirebaseConfigured}>
+                {loading
+                  ? <><span style={{ width:14, height:14, border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'white', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} /> Creating account…</>
+                  : <>Create Account <ArrowRight size={15} /></>
+                }
+              </button>
+            </form>
+          )}
 
           <div className="divider">or</div>
 

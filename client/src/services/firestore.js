@@ -7,7 +7,7 @@
  */
 import {
   getFirestore,
-  collection, addDoc, getDocs, setDoc, doc,
+  collection, addDoc, getDocs, setDoc, doc, getDoc,
   query, orderBy, limit, serverTimestamp,
 } from "firebase/firestore";
 import { isFirebaseConfigured } from "./firebase";
@@ -43,6 +43,14 @@ const notReady = () => { console.warn("[Firestore] Not configured — data not s
 export const saveUserProfile = async (uid, data) => {
   if (!db) return notReady();
   await setDoc(userDocRef(uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+};
+
+export const getUserProfile = async (uid) => {
+  if (!db) return null;
+  try {
+    const snap = await getDoc(userDocRef(uid));
+    return snap.exists() ? snap.data() : null;
+  } catch { return null; }
 };
 
 // ─── Uploads ──────────────────────────────────────────────────────────────────

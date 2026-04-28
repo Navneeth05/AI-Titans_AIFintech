@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from '../services/firebase';
-import { saveUserProfile } from '../services/firestore';
+import { saveUserProfile, getUserProfile } from '../services/firestore';
 
 const AuthContext = createContext(null);
 
-const DEV_USER = { uid: 'dev-user', email: 'dev@finsmart.local', displayName: 'Demo User' };
+const DEV_USER = { uid: 'dev-user', email: 'dev@finsmart.local', displayName: 'Demo User', bank: 'HDFC Bank' };
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(undefined); // undefined = loading
@@ -18,20 +18,26 @@ export const AuthProvider = ({ children }) => {
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser ?? null);
+      if (!firebaseUser) {
+        setUser(null);
+        return;
+      }
 
       // Save/update user profile in Firestore on every login
-      if (firebaseUser) {
-        try {
-          await saveUserProfile(firebaseUser.uid, {
-            email:       firebaseUser.email,
-            displayName: firebaseUser.displayName ?? '',
-            photoURL:    firebaseUser.photoURL ?? '',
-            lastLogin:   new Date().toISOString(),
-          });
-        } catch (err) {
-          console.warn("[Firestore] Could not save user profile:", err.message);
-        }
+      try {
+        await saveUserProfile(firebaseUser.uid, {
+          email:       firebaseUser.email,
+          displayName: firebaseUser.displayName ?? '',
+          photoURL:    firebaseUser.photoURL ?? '',
+          lastLogin:   new Date().toISOString(),
+        });
+        
+        // Fetch full profile (including bank)
+        const profile = await getUserProfile(firebaseUser.uid);
+        setUser({ ...firebaseUser, ...profile });
+      } catch (err) {
+        console.warn("[Firestore] Could not save/fetch user profile:", err.message);
+        setUser(firebaseUser); // fallback
       }
     });
 
