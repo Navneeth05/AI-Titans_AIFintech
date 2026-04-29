@@ -47,57 +47,97 @@ def _classify_transaction(description: str) -> str:
 
 
 def _parse_csv_transactions(content: bytes) -> list[dict]:
-    """Parse CSV bank statement into transaction-like dicts."""
+    """Parse CSV bank statement into transaction-like dicts with robust column detection."""
     text = content.decode("utf-8", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
+    lines = text.splitlines()
+    
+    # 1. Try to find the header row (skip preamble junk)
+    header_idx = 0
+    for i, line in enumerate(lines[:30]):
+        l = line.lower()
+        if any(kw in l for kw in ["description", "narration", "particulars", "transaction", "details"]):
+            header_idx = i
+            break
+    
+    reader = csv.DictReader(io.StringIO("\n".join(lines[header_idx:])))
     transactions = []
+    
     for row in reader:
-        # Try common column names
+        # Normalize keys to lowercase for easier lookup
+        row_lower = {str(k).lower().strip(): v for k, v in row.items()}
+        
+        # --- Extract Description ---
         desc = (
-            row.get("description") or row.get("Description")
-            or row.get("narration") or row.get("Narration")
-            or row.get("particulars") or row.get("Particulars") or ""
+            row_lower.get("description") or row_lower.get("narration") 
+            or row_lower.get("particulars") or row_lower.get("transaction details")
+            or row_lower.get("details") or ""
         )
-        amt_str = (
-            row.get("amount") or row.get("Amount")
-            or row.get("debit") or row.get("Debit")
-            or row.get("withdrawal") or row.get("Withdrawal") or "0"
-        )
-        bal_str = (
-            row.get("balance") or row.get("Balance")
-            or row.get("closing") or row.get("Closing") or "0"
-        )
+        
+        # --- Extract Date ---
         date_str = (
-            row.get("date") or row.get("Date")
-            or row.get("transaction_date") or row.get("Transaction Date") or ""
+            row_lower.get("date") or row_lower.get("txn date") 
+            or row_lower.get("transaction date") or row_lower.get("value date") or ""
         )
+        
+        # --- Extract Balance ---
+        bal_str = (
+            row_lower.get("balance") or row_lower.get("closing balance") 
+            or row_lower.get("running balance") or "0"
+        )
+        
+        # --- Extract Amount ---
+        # We check for separate Debit/Credit columns first
+        debit_val = row_lower.get("debit") or row_lower.get("withdrawal") or row_lower.get("money out") or row_lower.get("expenditure") or row_lower.get("dr") or ""
+        credit_val = row_lower.get("credit") or row_lower.get("deposit") or row_lower.get("money in") or row_lower.get("income") or row_lower.get("cr") or ""
+        amount_val = row_lower.get("amount") or row_lower.get("transaction amount") or row_lower.get("total") or ""
+        
+        amount = 0.0
+        tx_type = "debit" # default
+        
+        def clean_val(v):
+            if v is None: return ""
+            # Remove currency symbols, commas, and whitespace
+            v = re.sub(r"[₹$€£,\s]", "", str(v).strip())
+            # Handle (1,234.00) as negative
+            if v.startswith('(') and v.endswith(')'):
+                v = '-' + v[1:-1]
+            return v
 
-        # Clean amount
-        amt_clean = re.sub(r"[₹$€£,\s]", "", str(amt_str).strip())
-        bal_clean = re.sub(r"[₹$€£,\s]", "", str(bal_str).strip())
+        if debit_val and clean_val(debit_val):
+            try:
+                amount = abs(float(clean_val(debit_val)))
+                tx_type = "debit"
+            except ValueError: pass
+        elif credit_val and clean_val(credit_val):
+            try:
+                amount = abs(float(clean_val(credit_val)))
+                tx_type = "credit"
+            except ValueError: pass
+        elif amount_val and clean_val(amount_val):
+            try:
+                val = float(clean_val(amount_val))
+                amount = abs(val)
+                # If amount is negative, it's a debit
+                if val < 0:
+                    tx_type = "debit"
+                else:
+                    # Heuristic for combined amount column: check keywords
+                    credit_kw = re.compile(r"\b(credit|salary|refund|interest|reversal|cashback|deposit|cr)\b", re.IGNORECASE)
+                    tx_type = "credit" if credit_kw.search(str(desc)) else "debit"
+            except ValueError: pass
+
         try:
-            amount = float(amt_clean) if amt_clean else 0.0
-        except ValueError:
-            amount = 0.0
-        try:
-            balance = float(bal_clean) if bal_clean else 0.0
+            balance = float(clean_val(bal_str))
         except ValueError:
             balance = 0.0
 
         if amount == 0 and not desc:
             continue
 
-        # Infer transaction type
-        credit_kw = re.compile(
-            r"\b(credit|salary|refund|interest|reversal|cashback|deposit)\b",
-            re.IGNORECASE,
-        )
-        tx_type = "credit" if credit_kw.search(str(desc)) else "debit"
-
         transactions.append({
             "date": date_str,
             "description": str(desc),
-            "amount": abs(amount),
+            "amount": amount,
             "balance": balance,
             "transaction_type": tx_type,
         })

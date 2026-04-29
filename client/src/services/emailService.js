@@ -47,7 +47,7 @@ export const sendFraudAlertEmail = async (payload) => {
       await Notification.requestPermission();
     }
     if (Notification.permission === 'granted') {
-      new Notification('🚨 FinSmart Fraud Alert', {
+      new Notification('🚨 AIFintech Fraud Alert', {
         body: `${merchant} — ₹${amount} | Risk: ${riskScore}/100`,
         icon: '/vite.svg',
       });

@@ -5,7 +5,7 @@ import { saveUserProfile, getUserProfile } from '../services/firestore';
 
 const AuthContext = createContext(null);
 
-const DEV_USER = { uid: 'dev-user', email: 'dev@finsmart.local', displayName: 'Demo User', bank: 'HDFC Bank' };
+const DEV_USER = { uid: 'dev-user', email: 'dev@aifintech.local', displayName: 'Demo User', bank: 'HDFC Bank' };
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(undefined); // undefined = loading

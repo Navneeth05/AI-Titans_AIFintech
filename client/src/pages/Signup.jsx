@@ -68,7 +68,7 @@ const Signup = () => {
           <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:36 }}>
             <div style={{ width:46, height:46, borderRadius:12, background:'linear-gradient(135deg,var(--teal),var(--purple))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.3rem', boxShadow:'var(--shadow-teal)' }}>🛡️</div>
             <div>
-              <p style={{ fontFamily:'Space Grotesk', fontWeight:700, fontSize:'1.25rem', color:'var(--text)' }}>FinSmart AI</p>
+              <p style={{ fontFamily:'Space Grotesk', fontWeight:700, fontSize:'1.25rem', color:'var(--text)' }}>AIFintech</p>
               <p style={{ fontSize:'0.68rem', color:'var(--teal)', letterSpacing:'0.1em', textTransform:'uppercase' }}>Smart FinTech System</p>
             </div>
           </div>

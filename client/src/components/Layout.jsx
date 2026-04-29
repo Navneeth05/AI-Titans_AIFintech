@@ -23,7 +23,7 @@ const Layout = () => {
         <div className="sidebar-logo">
           <div className="logo-icon">🛡️</div>
           <div className="logo-text">
-            <span>FinSmart AI</span>
+            <span>AIFintech</span>
             <span>Smart FinTech System</span>
           </div>
         </div>
@@ -58,7 +58,7 @@ const Layout = () => {
             <div className="user-avatar">{initials}</div>
             <div className="user-info" style={{ flex:1, minWidth:0 }}>
               <span style={{ display: 'block', fontWeight: 600 }}>{user?.displayName ?? 'Demo User'}</span>
-              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email ?? 'dev@finsmart.local'}</span>
+              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email ?? 'dev@aifintech.local'}</span>
               <span style={{ fontSize:'0.65rem', color:'var(--teal)', fontWeight:600, marginTop:2, display:'block' }}>
                 🏦 {user?.bank ?? 'Bank Not Linked'}
               </span>

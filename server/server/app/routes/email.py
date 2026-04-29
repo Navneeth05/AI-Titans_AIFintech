@@ -34,7 +34,7 @@ Reason: {req.reason}
 If this was not you, please log in immediately to block your card.
 
 Stay safe,
-FinSmart AI Security Team
+AIFintech Security Team
 """
 
     if not sender_password:
@@ -43,7 +43,7 @@ FinSmart AI Security Team
         print(f"✉️  MOCK EMAIL SENT (Add SMTP_PASSWORD to .env for real emails)")
         print(f"To: {req.toEmail}")
         print(f"From: {sender_email}")
-        print(f"Subject: 🚨 FinSmart Fraud Alert: Suspicious transaction detected")
+        print(f"Subject: 🚨 AIFintech Fraud Alert: Suspicious transaction detected")
         print("────────────────────────────────────────────────────")
         print(body)
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -51,7 +51,7 @@ FinSmart AI Security Team
 
     # Build the email
     msg = EmailMessage()
-    msg["Subject"] = f"🚨 FinSmart Fraud Alert: Suspicious transaction detected"
+    msg["Subject"] = f"🚨 AIFintech Fraud Alert: Suspicious transaction detected"
     msg["From"] = sender_email
     msg["To"] = req.toEmail
 

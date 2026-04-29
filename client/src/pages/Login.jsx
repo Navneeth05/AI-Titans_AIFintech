@@ -62,7 +62,7 @@ const Login = () => {
               fontSize:'1.3rem', boxShadow:'var(--shadow-teal)',
             }}>🛡️</div>
             <div>
-              <p style={{ fontFamily:'Space Grotesk', fontWeight:700, fontSize:'1.25rem', color:'var(--text)' }}>FinSmart AI</p>
+              <p style={{ fontFamily:'Space Grotesk', fontWeight:700, fontSize:'1.25rem', color:'var(--text)' }}>AIFintech</p>
               <p style={{ fontSize:'0.68rem', color:'var(--teal)', letterSpacing:'0.1em', textTransform:'uppercase' }}>Smart FinTech System</p>
             </div>
           </div>
@@ -108,7 +108,7 @@ const Login = () => {
         <div className="auth-card">
           <h2 style={{ fontFamily:'Space Grotesk', fontSize:'1.5rem', fontWeight:700, marginBottom:4 }}>Welcome back</h2>
           <p style={{ color:'var(--text-muted)', fontSize:'0.83rem', marginBottom:20 }}>
-            New to FinSmart? <Link to="/signup" style={{ color:'var(--teal)', fontWeight:600 }}>Create an account</Link>
+            New to AIFintech? <Link to="/signup" style={{ color:'var(--teal)', fontWeight:600 }}>Create an account</Link>
           </p>
 
           {/* Error */}

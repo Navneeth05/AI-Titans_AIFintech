@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 def analyze_statement_with_gemini(pdf_path: str):
     """
-    Uses Gemini 1.5 Pro to analyze a bank statement PDF and return structured JSON.
+    Uses Gemini 1.5 Flash to analyze a bank statement PDF and return structured JSON.
+    Gemini 1.5 Flash is faster and highly accurate for extraction tasks.
     """
     if not settings.GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY not set. Falling back to local parser.")
@@ -22,32 +23,36 @@ def analyze_statement_with_gemini(pdf_path: str):
         logger.info(f"Uploading {pdf_path} to Gemini...")
         uploaded_file = genai.upload_file(pdf_path)
         
+        # Wait for file to be processed
+        timeout = 60 # 60 seconds max
+        start_time = time.time()
         while uploaded_file.state.name == "PROCESSING":
+            if time.time() - start_time > timeout:
+                logger.error("Gemini file processing timed out.")
+                return None
             time.sleep(2)
             uploaded_file = genai.get_file(uploaded_file.name)
             
-        logger.info("File processed by Gemini. Analyzing...")
+        logger.info("File processed by Gemini. Running Flash analysis...")
 
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        # Flash is often better for raw extraction tasks
+        model = genai.GenerativeModel('gemini-1.5-flash')
 
         prompt = """
-        You are a financial analyst. Review the attached bank statement.
-        1. Extract all transactions.
-        2. Identify credited amounts (deposits) and debited amounts (withdrawals).
-        3. Group the debited transactions into logical spending categories (e.g., 'Food & Dining', 'Transportation', 'Utilities', 'Transfers', 'Shopping', 'Health', 'Entertainment', 'Miscellaneous').
-        4. Calculate a credit score (300-850) based on financial health indicators seen in the statement (savings ratio, consistency, balance maintenance).
-        5. Calculate a risk score (0-100) based on suspicious patterns or high expense ratios.
+        Analyze this bank statement PDF carefully and extract the following information in strict JSON format:
+        1. All individual transactions (date, description, amount, type).
+        2. Financial health metrics:
+           - creditScore: A value between 300-850 based on balance trends and savings behavior.
+           - riskScore: A value between 0-100 based on suspicious activity or overdrafts.
+           - categories: Aggregated spending per category (e.g., Food, Travel, Bills, Shopping, Health, Entertainment, Other).
         
-        Output the analysis strictly as a JSON object using the following schema:
+        Output MUST be a single valid JSON object exactly following this structure:
         {
-          "creditScore": 720,
-          "riskScore": 15,
-          "categories": {
-            "Food & Dining": 0.00,
-            "Transportation": 0.00
-          },
+          "creditScore": number,
+          "riskScore": number,
+          "categories": { "CategoryName": amount, ... },
           "transactions": [
-            {"date": "YYYY-MM-DD", "description": "...", "amount": 0.00, "transaction_type": "debit/credit", "category": "..."}
+            {"date": "YYYY-MM-DD", "description": "string", "amount": number, "transaction_type": "credit/debit", "category": "string"}
           ]
         }
         """
@@ -57,11 +62,17 @@ def analyze_statement_with_gemini(pdf_path: str):
             generation_config={"response_mime_type": "application/json"}
         )
 
-        # Clean up
-        genai.delete_file(uploaded_file.name)
+        # Clean up Gemini storage
+        try:
+            genai.delete_file(uploaded_file.name)
+        except Exception:
+            pass
 
-        return json.loads(response.text)
+        # Parse and return
+        result = json.loads(response.text)
+        logger.info(f"Gemini Flash analysis successful: {len(result.get('transactions', []))} txns found.")
+        return result
 
     except Exception as e:
-        logger.error(f"Gemini analysis failed: {str(e)}")
+        logger.error(f"Gemini 1.5 Flash analysis failed: {str(e)}")
         return None

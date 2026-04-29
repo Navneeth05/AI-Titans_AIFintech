@@ -18,55 +18,30 @@ const CATEGORIES = {
   Other:         { color:'#64748b', bg:'#f8fafc', border:'#e2e8f0', emoji:'📦' },
 };
 
-// ── Keyword-based NLP classifier ──────────────────────────────────────────────
-const NLP_RULES = [
-  { category:'Food',          keywords:['swiggy','zomato','food','restaurant','cafe','pizza','burger','hotel','eat','lunch','dinner','breakfast','grocer','bigbasket','blinkit','dominos','kfc'] },
-  { category:'Travel',        keywords:['uber','ola','rapido','irctc','train','flight','airport','taxi','metro','bus','petrol','fuel','indigo','spicejet','redbus','makemytrip','cab'] },
-  { category:'Bills',         keywords:['airtel','jio','bsnl','electricity','bill','recharge','postpaid','broadband','water','gas','cylinder','lic','insurance','maintenance','society','rent'] },
-  { category:'Shopping',      keywords:['amazon','flipkart','myntra','ajio','meesho','nykaa','shopping','purchase','store','mall','reliance','dmart','retail','croma','decathlon'] },
-  { category:'Health',        keywords:['pharmacy','hospital','clinic','doctor','medical','apollo','medplus','netmeds','1mg','diagnostic','lab','health','medicine','pathlab'] },
-  { category:'Entertainment', keywords:['netflix','spotify','prime','hotstar','youtube','disney','zee5','ott','cinema','movie','pvr','inox','concert','gaming','xbox','steam'] },
-];
-
-function classifyTransaction(description = '') {
-  const lower = description.toLowerCase();
-  for (const rule of NLP_RULES) {
-    const matched = rule.keywords.filter(kw => lower.includes(kw));
-    if (matched.length > 0) {
-      return { category: rule.category, confidence: Math.min(0.78 + matched.length * 0.06, 0.99), keywords: matched.slice(0, 3) };
-    }
-  }
-  // check for common bank passbook patterns
-  if (/upi|neft|imps|rtgs|transfer|credit|salary|interest/i.test(lower)) {
-    return { category:'Other', confidence: 0.65, keywords: lower.match(/upi|neft|imps|rtgs|transfer|credit|salary|interest/gi)?.slice(0,2) ?? [] };
-  }
-  return { category:'Other', confidence: 0.42, keywords: [] };
-}
+// ── NLP Data Processing ──────────────────────────────────────────────────────
+const tooltipStyle = { backgroundColor:'white', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'0.82rem', color:'#0f172a' };
 
 // ── Bank passbook demo data (realistic Indian bank statement) ─────────────────
 const DEMO_TRANSACTIONS = [
-  { id:'d1',  description:'UPI/SWIGGY/9182/Ref123',             amount:450,   date:'2024-10-25', transaction_type:'debit' },
-  { id:'d2',  description:'UPI/UBER INDIA/Trip-BLR',            amount:280,   date:'2024-10-25', transaction_type:'debit' },
-  { id:'d3',  description:'NEFT/Airtel Postpaid/Oct Bill',      amount:999,   date:'2024-10-24', transaction_type:'debit' },
-  { id:'d4',  description:'UPI/AMAZON PAY/Order#9283',          amount:2499,  date:'2024-10-23', transaction_type:'debit' },
-  { id:'d5',  description:'POS/APOLLO PHARMACY/MG ROAD',        amount:350,   date:'2024-10-22', transaction_type:'debit' },
-  { id:'d6',  description:'SI/Netflix Inc/Monthly Sub',         amount:649,   date:'2024-10-21', transaction_type:'debit' },
-  { id:'d7',  description:'UPI/ZOMATO/FoodDelivery',            amount:320,   date:'2024-10-21', transaction_type:'debit' },
-  { id:'d8',  description:'NEFT/IRCTC/PNR-4521837',            amount:1800,  date:'2024-10-20', transaction_type:'debit' },
-  { id:'d9',  description:'NACH/BESCOM/Electricity/Oct',       amount:1200,  date:'2024-10-19', transaction_type:'debit' },
-  { id:'d10', description:'SALARY/INFOSYS LTD/Oct-2024',       amount:65000, date:'2024-10-15', transaction_type:'credit' },
-  { id:'d11', description:'UPI/FLIPKART/Order#8192',            amount:3499,  date:'2024-10-14', transaction_type:'debit' },
-  { id:'d12', description:'ATM/CASH WDL/Koramangala',           amount:5000,  date:'2024-10-13', transaction_type:'debit' },
-  { id:'d13', description:'UPI/BIGBASKET/Groceries',            amount:1250,  date:'2024-10-12', transaction_type:'debit' },
-  { id:'d14', description:'NEFT/LIC PREMIUM/Policy#982',       amount:3200,  date:'2024-10-10', transaction_type:'debit' },
-  { id:'d15', description:'UPI/OLA/AutoRide/BLR',              amount:125,   date:'2024-10-09', transaction_type:'debit' },
-  { id:'d16', description:'POS/UNKNOWN VENDOR TX-99',           amount:8999,  date:'2024-10-08', transaction_type:'debit' },
-  { id:'d17', description:'UPI/JIO RECHARGE/Prepaid',           amount:399,   date:'2024-10-05', transaction_type:'debit' },
-  { id:'d18', description:'INTEREST CREDIT/SB A/C',            amount:142,   date:'2024-10-01', transaction_type:'credit' },
+  { id:'d1',  description:'UPI/SWIGGY/9182/Ref123',             amount:450,   date:'2024-10-25', transaction_type:'debit',  category:'Food',    confidence:0.98, keywords:['swiggy'] },
+  { id:'d2',  description:'UPI/UBER INDIA/Trip-BLR',            amount:280,   date:'2024-10-25', transaction_type:'debit',  category:'Travel',  confidence:0.95, keywords:['uber'] },
+  { id:'d3',  description:'NEFT/Airtel Postpaid/Oct Bill',      amount:999,   date:'2024-10-24', transaction_type:'debit',  category:'Bills',   confidence:0.99, keywords:['airtel'] },
+  { id:'d4',  description:'UPI/AMAZON PAY/Order#9283',          amount:2499,  date:'2024-10-23', transaction_type:'debit',  category:'Shopping', confidence:0.92, keywords:['amazon'] },
+  { id:'d5',  description:'POS/APOLLO PHARMACY/MG ROAD',        amount:350,   date:'2024-10-22', transaction_type:'debit',  category:'Health',   confidence:0.96, keywords:['apollo'] },
+  { id:'d6',  description:'SI/Netflix Inc/Monthly Sub',         amount:649,   date:'2024-10-21', transaction_type:'debit',  category:'Entertainment', confidence:0.99, keywords:['netflix'] },
+  { id:'d7',  description:'UPI/ZOMATO/FoodDelivery',            amount:320,   date:'2024-10-21', transaction_type:'debit',  category:'Food',    confidence:0.97, keywords:['zomato'] },
+  { id:'d8',  description:'NEFT/IRCTC/PNR-4521837',            amount:1800,  date:'2024-10-20', transaction_type:'debit',  category:'Travel',  confidence:0.94, keywords:['irctc'] },
+  { id:'d9',  description:'NACH/BESCOM/Electricity/Oct',       amount:1200,  date:'2024-10-19', transaction_type:'debit',  category:'Bills',   confidence:0.98, keywords:['bescom'] },
+  { id:'d10', description:'SALARY/INFOSYS LTD/Oct-2024',       amount:65000, date:'2024-10-15', transaction_type:'credit', category:'Income',  confidence:0.99, keywords:['salary'] },
+  { id:'d11', description:'UPI/FLIPKART/Order#8192',            amount:3499,  date:'2024-10-14', transaction_type:'debit',  category:'Shopping', confidence:0.91, keywords:['flipkart'] },
+  { id:'d12', description:'ATM/CASH WDL/Koramangala',           amount:5000,  date:'2024-10-13', transaction_type:'debit',  category:'Other',    confidence:0.85, keywords:['cash'] },
+  { id:'d13', description:'UPI/BIGBASKET/Groceries',            amount:1250,  date:'2024-10-12', transaction_type:'debit',  category:'Food',    confidence:0.96, keywords:['bigbasket'] },
+  { id:'d14', description:'NEFT/LIC PREMIUM/Policy#982',       amount:3200,  date:'2024-10-10', transaction_type:'debit',  category:'Other',    confidence:0.90, keywords:['lic'] },
+  { id:'d15', description:'UPI/OLA/AutoRide/BLR',              amount:125,   date:'2024-10-09', transaction_type:'debit',  category:'Travel',  confidence:0.93, keywords:['ola'] },
+  { id:'d16', description:'POS/UNKNOWN VENDOR TX-99',           amount:899,   date:'2024-10-08', transaction_type:'debit',  category:'Other',    confidence:0.42, keywords:[] },
+  { id:'d17', description:'UPI/JIO RECHARGE/Prepaid',           amount:399,   date:'2024-10-05', transaction_type:'debit',  category:'Bills',   confidence:0.98, keywords:['jio'] },
+  { id:'d18', description:'INTEREST CREDIT/SB A/C',            amount:142,   date:'2024-10-01', transaction_type:'credit', category:'Income',  confidence:0.99, keywords:['interest'] },
 ];
-
-const tooltipStyle = { backgroundColor:'white', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'0.82rem', color:'#0f172a' };
-
 const NLPClassifier = () => {
   const { user }    = useAuth();
   const [classified, setClassified] = useState([]);
@@ -74,14 +49,12 @@ const NLPClassifier = () => {
   const [filter,     setFilter]     = useState('All');
   const [source,     setSource]     = useState('demo');
 
-  const classify = useCallback((txns) => txns.map(t => {
-    // If backend already assigned a category from our ML NLP model, use it!
-    const fallback = classifyTransaction(t.description || t.merchant || '');
-    if (t.category && t.category !== 'Other' && t.category !== '') {
-      return { ...fallback, ...t, confidence: t.confidence || 0.95 }; 
-    }
-    return { ...t, ...fallback };
-  }), []);
+  const classify = useCallback((txns) => txns.map(t => ({
+    ...t,
+    category: t.category || 'Other',
+    confidence: t.confidence || (t.category ? 0.95 : 0.42),
+    keywords: t.keywords || []
+  })), []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -89,15 +62,33 @@ const NLPClassifier = () => {
     let src  = 'demo';
 
     // Try Firestore first
-    if (user?.uid && user.uid !== 'dev-user') {
+    if (user?.uid) {
       try {
         const stored = await getStoredTransactions(user.uid);
-        if (stored.length > 0) { txns = stored; src = 'firestore'; }
+        if (stored && stored.length > 0) { txns = stored; src = 'firestore'; }
       } catch (e) { console.warn('[NLP] Firestore fetch failed:', e.message); }
     }
 
-    // Always fall back to demo if nothing loaded
-    if (txns.length === 0) { txns = DEMO_TRANSACTIONS; src = 'demo'; }
+    // Try LocalStorage fallback (Crucial for demo/dev mode without Firebase)
+    if (txns.length === 0) {
+      try {
+        const localData = localStorage.getItem('last_uploaded_transactions');
+        if (localData) {
+          const parsed = JSON.parse(localData);
+          if (parsed && parsed.length > 0) {
+            txns = parsed;
+            src = 'local';
+            console.log("[NLP] Loaded from localStorage:", txns.length, "txns");
+          }
+        }
+      } catch (e) { console.warn('[NLP] LocalStorage load failed:', e); }
+    }
+
+    // Always set empty if nothing loaded
+    if (txns.length === 0) { 
+      txns = DEMO_TRANSACTIONS;
+      src = 'demo'; 
+    }
 
     setClassified(classify(txns));
     setSource(src);
@@ -108,7 +99,7 @@ const NLPClassifier = () => {
 
   // ── Aggregation ─────────────────────────────────────────────────────────────
   const categoryTotals = Object.entries(CATEGORIES).map(([cat, cfg]) => {
-    const items = classified.filter(t => t.category === cat);
+    const items = classified.filter(t => t.category === cat && t.transaction_type !== 'credit');
     return { name: cat, emoji: cfg.emoji, color: cfg.color, amount: items.reduce((s, t) => s + (Number(t.amount) || 0), 0), count: items.length };
   }).filter(c => c.amount > 0).sort((a, b) => b.amount - a.amount);
 
@@ -128,12 +119,32 @@ const NLPClassifier = () => {
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
           {source === 'demo' && <span className="badge badge-warning">📋 Demo Passbook Data</span>}
+          {source === 'local' && <span className="badge badge-teal">⚡ Recently Uploaded (Local)</span>}
           {source === 'firestore' && <span className="badge badge-success">● Your Uploaded Transactions</span>}
           <button className="btn btn-outline btn-sm" onClick={loadData} style={{ display:'flex', gap:5 }}>
             <RefreshCw size={13} /> Refresh
           </button>
+          <button className="btn btn-primary btn-sm" style={{ display:'flex', gap:5 }} onClick={() => navigate('/upload')}>
+            Upload New
+          </button>
         </div>
       </div>
+
+      {classified.length === 0 && !loading ? (
+        <div className="card" style={{ textAlign:'center', padding:'80px 20px', border:'2px dashed var(--border-light)', background:'transparent', borderRadius:'var(--r-xl)' }}>
+          <div style={{ background:'var(--surface)', width:80, height:80, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 24px' }}>
+            <PieChart size={40} color="var(--teal-light)" />
+          </div>
+          <h2 style={{ fontSize:'1.5rem', marginBottom:12, fontWeight:700 }}>No Analysis Available</h2>
+          <p style={{ color:'var(--text-muted)', maxWidth:400, margin:'0 auto 32px', lineHeight:1.6 }}>
+            Upload a bank statement to see our NLP engine classify your transactions into smart spending categories.
+          </p>
+          <button className="btn btn-primary" onClick={() => navigate('/upload')}>
+            Upload Statement Now
+          </button>
+        </div>
+      ) : (
+        <>
 
       {/* Stats */}
       <div className="grid grid-4">
@@ -328,7 +339,9 @@ const NLPClassifier = () => {
           ))}
         </div>
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 };
 

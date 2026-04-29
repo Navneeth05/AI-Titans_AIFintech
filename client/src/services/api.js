@@ -60,65 +60,21 @@ export const getCreditScore = async () => {
 // ─── Dashboard (aggregated) – uses backend data when available ─────────────────
 export const getDashboardData = async (uid) => {
   try {
-    let creditScore = 0;
-    let riskScore = 0;
-    let categories = mockCategories;
-    let transactions = mockTransactions;
-    let trend = null;
+    if (!uid) return { creditScore: 680, riskScore: 24, spendingCategories: mockCategories, recentTransactions: mockTransactions, trend: mockTrend };
 
-    if (uid) {
-      // Fetch latest upload for scores and categories
-      const uploads = await getUploads(uid);
-      if (uploads && uploads.length > 0) {
-        const latest = uploads[0];
-        creditScore = latest.creditScore ?? 0;
-        riskScore = latest.riskScore ?? 0;
-        
-        // Convert categories object to array if present
-        if (latest.categories && Object.keys(latest.categories).length > 0) {
-          categories = Object.entries(latest.categories).map(([name, value]) => ({ name, value }));
-        }
-      }
-
-      // Fetch recent transactions
-      const storedTx = await getStoredTransactions(uid);
-      if (storedTx && storedTx.length > 0) {
-        transactions = storedTx;
-        
-        // Calculate monthly trend
-        const monthsMap = {};
-        storedTx.forEach(tx => {
-          if (!tx.date) return;
-          const date = new Date(tx.date);
-          const month = date.toLocaleString('default', { month: 'short' });
-          const year = date.getFullYear();
-          const key = `${month} ${year}`;
-          
-          if (!monthsMap[key]) monthsMap[key] = { month: key, spend: 0, income: 0, sortKey: date.getTime() };
-          
-          const amt = Math.abs(tx.amount || 0);
-          if (tx.transaction_type === 'credit') {
-            monthsMap[key].income += amt;
-          } else {
-            monthsMap[key].spend += amt;
-          }
-        });
-        
-        const trendData = Object.values(monthsMap).sort((a, b) => a.sortKey - b.sortKey);
-        if (trendData.length > 0) {
-          trend = trendData.map(({ month, spend, income }) => ({ month, spend, income }));
-        }
-      }
-    }
+    // Use the new backend pre-aggregated endpoint
+    const response = await api.get('/api/v1/dashboard/summary');
+    const data = response.data;
 
     return {
-      creditScore: creditScore || 680,
-      riskScore: riskScore || 24,
-      spendingCategories: categories || mockCategories,
-      recentTransactions: transactions || mockTransactions,
-      trend: trend || mockTrend,
+      creditScore: data.creditScore || 680,
+      riskScore: data.riskScore || 24,
+      spendingCategories: data.spendingCategories?.length ? data.spendingCategories : mockCategories,
+      recentTransactions: data.recentTransactions?.length ? data.recentTransactions : mockTransactions,
+      trend: data.trend?.length ? data.trend : mockTrend,
     };
-  } catch {
+  } catch (err) {
+    console.warn("Dashboard summary fetch failed, using local/mock fallback:", err.message);
     return { creditScore: 680, riskScore: 24, spendingCategories: mockCategories, recentTransactions: mockTransactions, trend: mockTrend };
   }
 };

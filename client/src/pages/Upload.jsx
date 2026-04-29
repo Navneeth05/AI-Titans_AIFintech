@@ -34,12 +34,23 @@ const Upload = () => {
       setHistLoading(false);
       return;
     }
+    
     getUploads(uid)
       .then(data => {
-        if (data && data.length > 0) setHistory(data);
-        else setHistory(MOCK_HISTORY);
+        // If it's a real user, show their data (even if empty)
+        // If it's dev-user and no data, show mock
+        if (data && data.length > 0) {
+          setHistory(data);
+        } else if (uid === 'dev-user') {
+          setHistory(MOCK_HISTORY);
+        } else {
+          setHistory([]);
+        }
       })
-      .catch(() => setHistory(MOCK_HISTORY))
+      .catch(() => {
+        if (uid === 'dev-user') setHistory(MOCK_HISTORY);
+        else setHistory([]);
+      })
       .finally(() => setHistLoading(false));
   }, [uid]);
 
@@ -82,30 +93,36 @@ const Upload = () => {
         setGeoAlertTxn(flagged);
       }
 
-      // ── Save to Firestore (Background) ──────────────────────────────
+      // ── Save to Firestore ──────────────────────────────────────────────
       if (uid) {
-        // We don't await these so the UI isn't blocked by slow DB writes
-        saveUpload(uid, {
-          fileName:    file.name,
-          fileSize:    file.size,
-          creditScore: backendResult.creditScore,
-          riskScore:   backendResult.riskScore,
-          categories:  backendResult.categories ?? {},
-          status:      'analyzed',
-        }).then(() => getUploads(uid))
-          .then(setHistory)
-          .catch(e => console.warn("Background saveUpload failed:", e));
+        try {
+          await saveUpload(uid, {
+            fileName:    file.name,
+            fileSize:    file.size,
+            creditScore: backendResult.creditScore,
+            riskScore:   backendResult.riskScore,
+            categories:  backendResult.categories ?? {},
+            status:      'analyzed',
+          });
 
-        if (backendResult.creditScore) {
-          saveCreditScore(uid, backendResult.creditScore, 'upload').catch(() => {});
-        }
+          if (backendResult.creditScore) {
+            await saveCreditScore(uid, backendResult.creditScore, 'upload');
+          }
 
-        if (backendResult.transactions?.length) {
-          saveTransactions(uid, backendResult.transactions)
-            .catch(e => console.warn("Background saveTransactions failed:", e));
+          if (backendResult.transactions?.length) {
+            // Save to localStorage as a fallback for the NLP page
+            localStorage.setItem('last_uploaded_transactions', JSON.stringify(backendResult.transactions));
+            await saveTransactions(uid, backendResult.transactions);
+          }
+          
+          // Refresh history list
+          const updatedHistory = await getUploads(uid);
+          setHistory(updatedHistory);
+          
+          console.log("Analysis complete. UI updated. Firestore sync finished.");
+        } catch (dbErr) {
+          console.warn("Firestore sync failed:", dbErr.message);
         }
-        
-        console.log("Analysis complete. UI updated. Firestore sync started in background.");
       }
     } catch (err) {
       console.error("Upload error details:", err);
@@ -228,9 +245,10 @@ const Upload = () => {
                   <div style={{ background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.25)', borderRadius:'var(--r-md)', padding:16, marginBottom:16 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
                       <CheckCircle2 size={18} color="var(--success)" />
-                      <span style={{ fontWeight:600, color:'var(--success)' }}>Analysis Complete · Saved to your account</span>
+                      <span style={{ fontWeight:600, color:'var(--success)' }}>Analysis Complete · Data Synced</span>
                     </div>
-                    <div className="grid grid-2" style={{ gap:10 }}>
+                    
+                    <div className="grid grid-2" style={{ gap:10, marginBottom:16 }}>
                       <div style={{ background:'var(--surface)', borderRadius:'var(--r-sm)', padding:12 }}>
                         <p style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginBottom:4 }}>CREDIT SCORE</p>
                         <p style={{ fontSize:'1.5rem', fontWeight:800, color:'var(--teal-light)' }}>{result.creditScore ?? '—'}</p>
@@ -242,6 +260,33 @@ const Upload = () => {
                         </p>
                       </div>
                     </div>
+
+                    {/* NLP Visual Category Breakdown */}
+                    {result.categories && Object.keys(result.categories).length > 0 && (
+                      <div style={{ marginBottom:16 }}>
+                        <p style={{ fontSize:'0.75rem', fontWeight:600, marginBottom:8, color:'var(--text-muted)' }}>🧠 NLP SPENDING CLASSIFICATION</p>
+                        <div style={{ display:'flex', height:8, borderRadius:4, overflow:'hidden', background:'var(--border-light)', marginBottom:10 }}>
+                          {Object.entries(result.categories).map(([name, amount], idx) => {
+                            const total = Object.values(result.categories).reduce((a, b) => a + b, 0);
+                            const pct = total > 0 ? (amount / total * 100) : 0;
+                            const colors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#64748b'];
+                            return <div key={name} style={{ width: `${pct}%`, background: colors[idx % colors.length] }} title={`${name}: ${pct.toFixed(0)}%`} />;
+                          })}
+                        </div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                          {Object.keys(result.categories).slice(0, 4).map((name, idx) => (
+                            <span key={name} style={{ fontSize:'0.65rem', display:'flex', alignItems:'center', gap:4 }}>
+                              <div style={{ width:6, height:6, borderRadius:'50%', background:['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'][idx % 4] }} /> {name}
+                            </span>
+                          ))}
+                          {Object.keys(result.categories).length > 4 && <span style={{ fontSize:'0.65rem', color:'var(--text-dim)' }}>+{Object.keys(result.categories).length - 4} more</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    <button className="btn btn-teal btn-sm" style={{ width:'100%', display:'flex', gap:6, justifyContent:'center' }} onClick={() => navigate('/nlp')}>
+                       View NLP Details & Classification →
+                    </button>
                   </div>
                 )}
 
@@ -261,15 +306,17 @@ const Upload = () => {
                   <button className="btn btn-outline" style={{ flex:1 }}
                     onClick={() => { setFile(null); setStatus(null); setResult(null); }}
                     disabled={uploading}>
-                    Cancel
+                    {status === 'success' ? 'Upload New' : 'Cancel'}
                   </button>
-                  <button className="btn btn-primary" style={{ flex:2 }}
-                    onClick={handleUpload}
-                    disabled={uploading || status === 'success'}>
-                    {uploading ? (
-                      <><span style={{ width:16, height:16, border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'white', borderRadius:'50%', display:'inline-block', animation:'spin .8s linear infinite' }} /> Processing…</>
-                    ) : '🧠 Upload & Analyse'}
-                  </button>
+                  {status !== 'success' && (
+                    <button className="btn btn-primary" style={{ flex:2 }}
+                      onClick={handleUpload}
+                      disabled={uploading}>
+                      {uploading ? (
+                        <><span style={{ width:16, height:16, border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'white', borderRadius:'50%', display:'inline-block', animation:'spin .8s linear infinite' }} /> Processing…</>
+                      ) : '🧠 Upload & Analyse'}
+                    </button>
+                  )}
                 </div>
               </div>
             )}

@@ -18,7 +18,7 @@ const App = () => {
     setupMessaging().catch(() => {});
     onMessageListener()
       .then(payload => {
-        const title = payload?.notification?.title ?? 'FinSmart Alert';
+        const title = payload?.notification?.title ?? 'AIFintech Alert';
         const body  = payload?.notification?.body  ?? '';
         // Show browser notification if permitted
         if (Notification.permission === 'granted') {

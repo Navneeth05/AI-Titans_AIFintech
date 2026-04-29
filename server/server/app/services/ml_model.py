@@ -110,16 +110,42 @@ def _load_nlp_model() -> tuple[Optional[Any], Optional[Any], Optional[Any]]:
         logger.warning("nlp_categorizer.pkl or tfidf_vectorizer.pkl or nlp_label_encoder.pkl not found")
     return None, None, None
 
+# ── Rule-based NLP fallback (from frontend logic) ─────────────────────────────
+NLP_RULES = [
+    { 'category':'Food',          'keywords':['swiggy','zomato','food','restaurant','cafe','pizza','burger','hotel','eat','lunch','dinner','breakfast','grocer','bigbasket','blinkit','dominos','kfc'] },
+    { 'category':'Travel',        'keywords':['uber','ola','rapido','irctc','train','flight','airport','taxi','metro','bus','petrol','fuel','indigo','spicejet','redbus','makemytrip','cab'] },
+    { 'category':'Bills',         'keywords':['airtel','jio','bsnl','electricity','bill','recharge','postpaid','broadband','water','gas','cylinder','lic','insurance','maintenance','society','rent'] },
+    { 'category':'Shopping',      'keywords':['amazon','flipkart','myntra','ajio','meesho','nykaa','shopping','purchase','store','mall','reliance','dmart','retail','croma','decathlon'] },
+    { 'category':'Health',        'keywords':['pharmacy','hospital','clinic','doctor','medical','apollo','medplus','netmeds','1mg','diagnostic','lab','health','medicine','pathlab'] },
+    { 'category':'Entertainment', 'keywords':['netflix','spotify','prime','hotstar','youtube','disney','zee5','ott','cinema','movie','pvr','inox','concert','gaming','xbox','steam'] },
+]
+
+def _rule_based_classify(description: str) -> Optional[str]:
+    lower = description.lower()
+    for rule in NLP_RULES:
+        if any(kw in lower for kw in rule['keywords']):
+            return rule['category']
+    return None
+
 def predict_nlp_category(description: str, fallback_category: str = "Other") -> str:
-    """Predict category using the NLP model. Returns fallback_category if model fails/missing."""
+    """Predict category using the ML NLP model with a rule-based fallback."""
+    # 1. Try ML Model
     model, vectorizer, encoder = _load_nlp_model()
     if model is not None and vectorizer is not None and encoder is not None:
         try:
             features = vectorizer.transform([description])
-            cat = model.predict(features)[0]
-            return str(encoder.inverse_transform([cat])[0])
+            cat_idx = model.predict(features)[0]
+            category = str(encoder.inverse_transform([cat_idx])[0])
+            if category != "Other":
+                return category
         except Exception as e:
-            logger.error("NLP inference error: %s — falling back", e)
+            logger.error("NLP inference error: %s", e)
+
+    # 2. Try Rule-based fallback
+    rule_cat = _rule_based_classify(description)
+    if rule_cat:
+        return rule_cat
+
     return fallback_category
 
 
